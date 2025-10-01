@@ -213,4 +213,43 @@ export class EnvironmentService {
   getPostHogKey(): string {
     return this.configService.get<string>('POSTHOG_KEY');
   }
+
+  // GitHub App integration
+  getGithubAppId(): string {
+    return this.configService.get<string>('GITHUB_APP_ID');
+  }
+
+  getGithubClientId(): string {
+    return this.configService.get<string>('GITHUB_APP_CLIENT_ID');
+  }
+
+  getGithubPrivateKey(): string {
+    return this.configService.get<string>('GITHUB_APP_PRIVATE_KEY');
+  }
+
+  getGithubWebhookSecret(): string {
+    return this.configService.get<string>('GITHUB_APP_WEBHOOK_SECRET');
+  }
+
+  getGithubApiBase(): string {
+    return (
+      this.configService.get<string>('GITHUB_API_BASE') || 'https://api.github.com'
+    );
+  }
+
+  getGithubApiVersion(): string {
+    return this.configService.get<string>('GITHUB_API_VERSION', '2022-11-28');
+  }
+
+  getGithubFetchRetries(): number {
+    return parseInt(this.configService.get<string>('GITHUB_FETCH_RETRIES', '2'));
+  }
+
+  getGithubFetchBackoffBaseMs(): number {
+    return parseInt(this.configService.get<string>('GITHUB_FETCH_BACKOFF_BASE_MS', '500'));
+  }
+
+  getGithubFetchTimeoutMs(): number {
+    return parseInt(this.configService.get<string>('GITHUB_FETCH_TIMEOUT_MS', '15000'));
+  }
 }

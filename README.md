@@ -59,4 +59,21 @@ Special thanks to;
 <img width="48" alt="Algolia-mark-square-white" src="https://github.com/user-attachments/assets/6ccad04a-9589-4965-b6a1-d5cb1f4f9e94" />
 
 [Algolia](https://www.algolia.com/) for providing full-text search to the docs.
+## GitHub Fetch Backoff & Timeouts
+
+The GitHub integration uses a simple backoff for API calls. You can tune behavior via env vars:
+
+- `GITHUB_FETCH_RETRIES` (default `2`): Number of retries for HTTP 429/5xx.
+- `GITHUB_FETCH_BACKOFF_BASE_MS` (default `500`): Base delay in ms; actual delay grows exponentially (base * 2^attempt).
+- `GITHUB_FETCH_TIMEOUT_MS` (default `15000`): Per-request timeout in ms.
+
+Example:
+
+```
+GITHUB_FETCH_RETRIES=3
+GITHUB_FETCH_BACKOFF_BASE_MS=750
+GITHUB_FETCH_TIMEOUT_MS=20000
+```
+
+These settings help with large repositories or rate limiting. Combine with ETag/If-None-Match (already enabled) to reduce quota usage.
 
