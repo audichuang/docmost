@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Table, Button, Group, Text } from '@mantine/core';
+import { Table, Button, Group, Text, ScrollArea } from '@mantine/core';
 import { modals } from '@mantine/modals';
 import { listSources, rescanSource, GithubSource, patchSourceActive, deleteSourceApi } from '../services/github-integration-api';
 import SyncStatusTag from './SyncStatusTag';
@@ -32,7 +32,7 @@ export default function SourceTable({ spaces = [], refreshToken }: { spaces?: { 
   const onRescan = async (id: string) => {
     setRescanMap((m) => ({ ...m, [id]: true }));
     try {
-      await rescanSource(id);
+      await rescanSource(id, { force: true });
       await load();
     } finally {
       setRescanMap((m) => ({ ...m, [id]: false }));
@@ -42,7 +42,8 @@ export default function SourceTable({ spaces = [], refreshToken }: { spaces?: { 
   if (loading) return <Text c="dimmed">Loading sources...</Text>;
 
   return (
-    <Table>
+    <ScrollArea type="auto" offsetScrollbars>
+    <Table miw={1000} stickyHeader>
       <Table.Thead>
         <Table.Tr>
           <Table.Th>Space</Table.Th>
@@ -86,5 +87,6 @@ export default function SourceTable({ spaces = [], refreshToken }: { spaces?: { 
         ))}
       </Table.Tbody>
     </Table>
+    </ScrollArea>
   );
 }

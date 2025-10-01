@@ -24,23 +24,27 @@ export default function IntegrationsGithubPage() {
 
       <Grid>
         <GridCol span={{ base: 12, md: 6 }}>
-          <Card withBorder>
-            <Stack>
-              <GithubInstallCard installations={Array.isArray(installations) ? installations : []} />
-              <Divider my="md" />
-              <Title order={5}>Sources</Title>
-              <SourceTable spaces={(Array.isArray(spaces) ? spaces : []).map((s: any) => ({ id: s.id, name: s.name }))} refreshToken={refreshToken} />
-            </Stack>
+          <Card withBorder style={{ height: '100%' }}>
+            <GithubInstallCard installations={Array.isArray(installations) ? installations : []} />
           </Card>
         </GridCol>
         <GridCol span={{ base: 12, md: 6 }}>
-          <Card withBorder>
+          <Card withBorder style={{ height: '100%' }}>
             <Title order={5}>Add Source</Title>
             <RepoSelector
               installations={(Array.isArray(installations) ? installations : []).map((i: any) => ({ id: i.id, accountLogin: i.accountLogin }))}
               spaces={(Array.isArray(spaces) ? spaces : []).map((s: any) => ({ id: s.id, name: s.name }))}
               onCreated={() => setRefreshToken((t) => t + 1)}
             />
+          </Card>
+        </GridCol>
+        <GridCol span={{ base: 12 }}>
+          <Card withBorder>
+            <Stack>
+              <Divider my="xs" />
+              <Title order={5}>Sources</Title>
+              <SourceTable spaces={(Array.isArray(spaces) ? spaces : []).map((s: any) => ({ id: s.id, name: s.name }))} refreshToken={refreshToken} />
+            </Stack>
           </Card>
         </GridCol>
       </Grid>

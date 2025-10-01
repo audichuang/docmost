@@ -78,7 +78,7 @@ export class GithubSyncService {
       .execute();
   }
 
-  async fullSync(workspaceId: string, sourceId: string) {
+  async fullSync(workspaceId: string, sourceId: string, opts?: { force?: boolean }) {
     const source = await this.db
       .selectFrom('githubSources')
       .selectAll()
@@ -124,7 +124,7 @@ export class GithubSyncService {
         .where('path', '=', relPath)
         .executeTakeFirst();
 
-      const etag = existing?.etag || undefined;
+      const etag = opts?.force ? undefined : (existing?.etag || undefined);
       const contentRes = await this.gh.getContent(
         source.owner,
         source.repo,
@@ -135,6 +135,7 @@ export class GithubSyncService {
       );
 
       if (contentRes.status === 304) {
+        this.logger.debug(`[fullSync] ${source.id} ${relPath} -> 304 not modified`);
         // mark scanned time on existing mapping
         if (existing) {
           await this.db
@@ -146,7 +147,7 @@ export class GithubSyncService {
         continue; // unchanged
       }
       if (contentRes.status !== 200) {
-        this.logger.warn(`Skip ${f.path} due to status ${contentRes.status}`);
+        this.logger.warn(`[fullSync] skip ${f.path} status=${contentRes.status}`);
         continue;
       }
 
@@ -180,6 +181,7 @@ export class GithubSyncService {
 
       // If file is README/index inside a folder, target the folder page itself.
       if (isIndexLike && folderPageId) {
+        this.logger.debug(`[fullSync] ${source.id} ${relPath} -> update folder page ${folderPageId}`);
         await this.pageRepo.updatePage(
           {
             title: title,
@@ -200,6 +202,7 @@ export class GithubSyncService {
       }
 
       if (existing?.pageId) {
+        this.logger.debug(`[fullSync] ${source.id} ${relPath} -> update page ${existing.pageId}`);
         await this.pageRepo.updatePage(
           {
             title: title,
@@ -231,6 +234,7 @@ export class GithubSyncService {
           workspaceId,
           lastUpdatedById: await this.getDefaultWorkspaceUserId(workspaceId),
         });
+        this.logger.debug(`[fullSync] ${source.id} ${relPath} -> create page ${created.id} parent=${folderPageId ?? source.rootPageId ?? null}`);
 
         // link mapping to page
         await this.upsertGithubFile(source.id, relPath, body.sha, contentRes.etag, title, created.id);
@@ -562,8 +566,8 @@ export class GithubSyncService {
             .where('path', '=', relPath)
             .executeTakeFirst();
 
-          const etag = existing?.etag || undefined;
-          const contentRes = await this.gh.getContent(owner, repo, fpath, source.ref, token, etag);
+          // Force fetch on push to guarantee freshness even if ETag didn't change
+          const contentRes = await this.gh.getContent(owner, repo, fpath, source.ref, token, undefined);
           if (contentRes.status === 304) {
             await this.db
               .updateTable('githubFiles')

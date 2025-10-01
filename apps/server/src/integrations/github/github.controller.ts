@@ -72,6 +72,7 @@ export class GithubController {
   @Post('sources/:id/rescan')
   async rescan(
     @Param('id', new ParseUUIDPipe()) sourceId: string,
+    @Query('force') force: string,
     @AuthWorkspace() workspace: Workspace,
     @AuthUser() user: User,
   ) {
@@ -88,7 +89,7 @@ export class GithubController {
         throw new ForbiddenException();
       }
     }
-    await this.sync.fullSync(workspace.id, sourceId);
+    await this.sync.fullSync(workspace.id, sourceId, { force: force === '1' || force === 'true' });
     return { ok: true };
   }
 

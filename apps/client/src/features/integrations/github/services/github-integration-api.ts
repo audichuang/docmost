@@ -51,8 +51,9 @@ export async function createSource(payload: {
   return req.data;
 }
 
-export async function rescanSource(id: string) {
-  const req = await api.post(`/integrations/github/sources/${id}/rescan`);
+export async function rescanSource(id: string, opts?: { force?: boolean }) {
+  const params = opts?.force ? { force: '1' } : undefined;
+  const req = await api.post(`/integrations/github/sources/${id}/rescan`, undefined, { params });
   return req.data;
 }
 

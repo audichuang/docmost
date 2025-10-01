@@ -15,6 +15,7 @@ import {
   IconSearch,
   IconSettings,
   IconTrash,
+  IconRefresh,
 } from "@tabler/icons-react";
 import classes from "./space-sidebar.module.css";
 import React from "react";
@@ -39,6 +40,7 @@ import ExportModal from "@/components/common/export-modal";
 import { mobileSidebarAtom } from "@/components/layouts/global/hooks/atoms/sidebar-atom.ts";
 import { useToggleSidebar } from "@/components/layouts/global/hooks/hooks/use-toggle-sidebar.ts";
 import { searchSpotlight } from "@/features/search/constants";
+import { listSources, rescanSource } from "@/features/integrations/github/services/github-integration-api";
 
 export function SpaceSidebar() {
   const { t } = useTranslation();
@@ -213,6 +215,21 @@ function SpaceMenu({ spaceId, onSpaceSettings }: SpaceMenuProps) {
     useDisclosure(false);
   const [exportOpened, { open: openExportModal, close: closeExportModal }] =
     useDisclosure(false);
+  const [syncing, setSyncing] = React.useState(false);
+  const [hasGithubSource, setHasGithubSource] = React.useState<boolean>(false);
+
+  React.useEffect(() => {
+    // Best-effort probe to see if this space is mapped to any GitHub source.
+    // Errors are ignored; this only enables/disables menu item.
+    (async () => {
+      try {
+        const all = await listSources();
+        setHasGithubSource((all || []).some((s: any) => s.spaceId === spaceId));
+      } catch {
+        setHasGithubSource(false);
+      }
+    })();
+  }, [spaceId]);
 
   return (
     <>
@@ -234,6 +251,25 @@ function SpaceMenu({ spaceId, onSpaceSettings }: SpaceMenuProps) {
         </Menu.Target>
 
         <Menu.Dropdown>
+          <Menu.Item
+            disabled={!hasGithubSource || syncing}
+            leftSection={<IconRefresh size={16} />}
+            onClick={async () => {
+              try {
+                setSyncing(true);
+                const all = await listSources();
+                const targets = (all || []).filter((s: any) => s.spaceId === spaceId);
+                for (const s of targets) {
+                  await rescanSource(s.id, { force: true });
+                }
+              } finally {
+                setSyncing(false);
+              }
+            }}
+          >
+            {t("Sync from GitHub")}
+          </Menu.Item>
+
           <Menu.Item
             onClick={openImportModal}
             leftSection={<IconArrowDown size={16} />}
