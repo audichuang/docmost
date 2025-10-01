@@ -77,25 +77,25 @@ export interface AuthProviders {
   createdAt: Generated<Timestamp>;
   creatorId: string | null;
   deletedAt: Timestamp | null;
+  groupSync: Generated<boolean>;
   id: Generated<string>;
   isEnabled: Generated<boolean>;
-  groupSync: Generated<boolean>;
   ldapBaseDn: string | null;
   ldapBindDn: string | null;
   ldapBindPassword: string | null;
+  ldapConfig: Generated<Json | null>;
   ldapTlsCaCert: string | null;
   ldapTlsEnabled: Generated<boolean | null>;
   ldapUrl: string | null;
-  ldapUserAttributes: Json | null;
+  ldapUserAttributes: Generated<Json | null>;
   ldapUserSearchFilter: string | null;
-  ldapConfig: Json | null;
-  settings: Json | null;
   name: string;
   oidcClientId: string | null;
   oidcClientSecret: string | null;
   oidcIssuer: string | null;
   samlCertificate: string | null;
   samlUrl: string | null;
+  settings: Generated<Json | null>;
   type: string;
   updatedAt: Generated<Timestamp>;
   workspaceId: string;
@@ -175,6 +175,65 @@ export interface FileTasks {
   type: string | null;
   updatedAt: Generated<Timestamp>;
   workspaceId: string;
+}
+
+export interface GithubFiles {
+  contentType: string;
+  createdAt: Generated<Timestamp>;
+  etag: string | null;
+  id: Generated<string>;
+  pageId: string | null;
+  path: string;
+  renamedFromPath: string | null;
+  sha: string | null;
+  sourceId: string;
+  status: Generated<string>;
+  title: string | null;
+  updatedAt: Generated<Timestamp>;
+}
+
+export interface GithubInstallations {
+  accountLogin: string;
+  accountType: string;
+  appId: string;
+  createdAt: Generated<Timestamp>;
+  id: Generated<string>;
+  installationId: string;
+  updatedAt: Generated<Timestamp>;
+  workspaceId: string;
+}
+
+export interface GithubSources {
+  active: Generated<boolean>;
+  createdAt: Generated<Timestamp>;
+  githubInstallationId: string;
+  id: Generated<string>;
+  lastFullScanSha: string | null;
+  mode: Generated<string>;
+  owner: string;
+  ref: string;
+  repo: string;
+  rootDir: Generated<string>;
+  rootPageId: string | null;
+  spaceId: string;
+  updatedAt: Generated<Timestamp>;
+  workspaceId: string;
+}
+
+export interface GithubWebhookEvents {
+  afterSha: string | null;
+  beforeSha: string | null;
+  createdAt: Generated<Timestamp>;
+  deliveryId: string;
+  error: string | null;
+  event: string;
+  filesJson: Json | null;
+  githubInstallationId: string | null;
+  id: Generated<string>;
+  ok: boolean | null;
+  processed: Generated<boolean>;
+  processedAt: Timestamp | null;
+  repoFullName: string | null;
 }
 
 export interface Groups {
@@ -298,12 +357,12 @@ export interface Users {
   deletedAt: Timestamp | null;
   email: string;
   emailVerifiedAt: Timestamp | null;
+  hasGeneratedPassword: Generated<boolean>;
   id: Generated<string>;
   invitedById: string | null;
   lastActiveAt: Timestamp | null;
   lastLoginAt: Timestamp | null;
   locale: string | null;
-  hasGeneratedPassword: Generated<boolean | null>;
   name: string | null;
   password: string | null;
   role: string | null;
@@ -369,6 +428,10 @@ export interface DB {
   billing: Billing;
   comments: Comments;
   fileTasks: FileTasks;
+  githubFiles: GithubFiles;
+  githubInstallations: GithubInstallations;
+  githubSources: GithubSources;
+  githubWebhookEvents: GithubWebhookEvents;
   groups: Groups;
   groupUsers: GroupUsers;
   pageHistory: PageHistory;

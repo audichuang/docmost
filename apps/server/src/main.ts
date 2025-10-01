@@ -54,6 +54,7 @@ async function bootstrap() {
         '/api/auth/setup',
         '/api/health',
         '/api/billing/stripe/webhook',
+        '/api/integrations/github/webhook',
         '/api/workspace/check-hostname',
         '/api/sso/google',
         '/api/workspace/create',
