@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Group, Select, SelectProps, TextInput, Button, Stack, Text } from '@mantine/core';
 import { IconBrandGithub } from '@tabler/icons-react';
 import { listRepos, createSource, listRefs } from '../services/github-integration-api';
+import SyncProgressModal from './SyncProgressModal';
 
 export default function RepoSelector({ installations, spaces, onCreated }: { installations: { id: string; accountLogin: string }[], spaces: { id: string; name: string }[], onCreated?: () => void }) {
   const [installationId, setInstallationId] = useState<string | null>(null);
@@ -15,6 +16,8 @@ export default function RepoSelector({ installations, spaces, onCreated }: { ins
   const [spaceId, setSpaceId] = useState<string | null>(null);
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [syncJobId, setSyncJobId] = useState<string | null>(null);
+  const [progressModalOpened, setProgressModalOpened] = useState(false);
 
   const renderRepoOption: SelectProps['renderOption'] = ({ option }) => (
     <Group gap="sm" wrap="nowrap">
@@ -64,7 +67,7 @@ export default function RepoSelector({ installations, spaces, onCreated }: { ins
     if (!installationId || !owner || !repo || !ref || !spaceId) return;
     setCreating(true);
     try {
-      await createSource({
+      const result = await createSource({
         githubInstallationId: installationId,
         owner,
         repo,
@@ -73,14 +76,35 @@ export default function RepoSelector({ installations, spaces, onCreated }: { ins
         targetPath: targetPath || '',
         spaceId
       });
-      onCreated?.();
+
+      console.log('[RepoSelector] Got jobId:', result.jobId);
+
+      // Open progress modal with jobId
+      setSyncJobId(result.jobId);
+      setProgressModalOpened(true);
+
+      console.log('[RepoSelector] Modal opened with jobId:', result.jobId);
+    } catch (err) {
+      console.error('[RepoSelector] Create source failed:', err);
     } finally {
       setCreating(false);
     }
   };
 
+  const handleProgressModalClose = () => {
+    setProgressModalOpened(false);
+    setSyncJobId(null);
+    onCreated?.();
+  };
+
   return (
-    <Stack gap="md">
+    <>
+      <SyncProgressModal
+        opened={progressModalOpened}
+        onClose={handleProgressModalClose}
+        jobId={syncJobId}
+      />
+      <Stack gap="md">
       <Group grow>
         <Select
           label="Installation"
@@ -156,5 +180,6 @@ export default function RepoSelector({ installations, spaces, onCreated }: { ins
         </Button>
       </Group>
     </Stack>
+    </>
   );
 }
