@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Group, Select, TextInput, Button, Stack } from '@mantine/core';
+import { Group, Select, SelectProps, TextInput, Button, Stack, Text } from '@mantine/core';
+import { IconBrandGithub } from '@tabler/icons-react';
 import { listRepos, createSource, listRefs } from '../services/github-integration-api';
 
 export default function RepoSelector({ installations, spaces, onCreated }: { installations: { id: string; accountLogin: string }[], spaces: { id: string; name: string }[], onCreated?: () => void }) {
@@ -14,6 +15,20 @@ export default function RepoSelector({ installations, spaces, onCreated }: { ins
   const [spaceId, setSpaceId] = useState<string | null>(null);
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [creating, setCreating] = useState(false);
+
+  const renderRepoOption: SelectProps['renderOption'] = ({ option }) => (
+    <Group gap="sm" wrap="nowrap">
+      <IconBrandGithub size={18} style={{ flexShrink: 0 }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <Text size="sm" lineClamp={1}>
+          {option.value.split('/')[1]}
+        </Text>
+        <Text size="xs" c="dimmed" lineClamp={1}>
+          {option.value.split('/')[0]}
+        </Text>
+      </div>
+    </Group>
+  );
 
   useEffect(() => {
     (async () => {
@@ -81,10 +96,12 @@ export default function RepoSelector({ installations, spaces, onCreated }: { ins
           placeholder={loadingRepos ? 'Loading...' : 'owner/repo'}
           searchable
           data={repos.map((r) => ({ value: r.full_name, label: r.full_name }))}
+          renderOption={renderRepoOption}
           onChange={(v) => v && onSelectRepo(v)}
           disabled={!installationId}
           required
           withAsterisk
+          maxDropdownHeight={400}
         />
       </Group>
       <Group grow>
@@ -112,11 +129,13 @@ export default function RepoSelector({ installations, spaces, onCreated }: { ins
         <Select
           label="Space"
           placeholder="Select space"
+          key={spaces.length}
           data={spaces.map((s) => ({ value: s.id, label: s.name }))}
           value={spaceId}
           onChange={setSpaceId}
           required
           withAsterisk
+          searchable
         />
         <TextInput
           label="Target path in Space"
