@@ -72,6 +72,7 @@ export default function Page() {
             SpaceCaslAction.Manage,
             SpaceCaslSubject.Page,
           )}
+          isLocked={page.isLocked}
         />
         <MemoizedHistoryModal pageId={page.id} />
       </div>

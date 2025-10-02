@@ -61,12 +61,14 @@ interface PageEditorProps {
   pageId: string;
   editable: boolean;
   content: any;
+  isLocked?: boolean;
 }
 
 export default function PageEditor({
   pageId,
   editable,
   content,
+  isLocked = false,
 }: PageEditorProps) {
   const collaborationURL = useCollaborationUrl();
   const [currentUser] = useAtom(currentUserAtom);
@@ -119,8 +121,18 @@ export default function PageEditor({
 
   useEffect(() => {
     if (!providersRef.current) {
-      const local = new IndexeddbPersistence(documentName, ydoc);
-      local.on("synced", () => setLocalSynced(true));
+      // Skip IndexedDB persistence for GitHub-managed (locked) pages to prevent stale cache
+      const local = isLocked
+        ? null
+        : new IndexeddbPersistence(documentName, ydoc);
+
+      if (local) {
+        local.on("synced", () => setLocalSynced(true));
+      } else {
+        // If no local persistence, mark as synced immediately
+        setLocalSynced(true);
+      }
+
       const remote = new HocuspocusProvider({
         name: documentName,
         url: collaborationURL,
@@ -162,10 +174,10 @@ export default function PageEditor({
     // Only destroy on final unmount
     return () => {
       providersRef.current?.remote.destroy();
-      providersRef.current?.local.destroy();
+      providersRef.current?.local?.destroy();
       providersRef.current = null;
     };
-  }, [pageId]);
+  }, [pageId, isLocked]);
 
   /*
   useEffect(() => {
