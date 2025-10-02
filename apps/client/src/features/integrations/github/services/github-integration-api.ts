@@ -63,7 +63,7 @@ export async function createSource(payload: {
   spaceId: string;
   rootPageId?: string;
   active?: boolean;
-}) {
+}): Promise<{ jobId: string }> {
   const req = await api.post('/integrations/github/sources', payload);
   return req.data;
 }

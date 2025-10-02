@@ -9,6 +9,7 @@ import { jsonToText } from '../../collaboration/collaboration.util';
 import { GithubService } from './github.service';
 import { GithubMapper } from './github.mapper';
 import { GithubLinkRewriter } from './github.link-rewriter';
+import { GithubSyncProgressService } from './github-sync-progress.service';
 import { createYdocFromJson } from '../../common/helpers/prosemirror/utils';
 import { CreateSourceDto, LinkInstallationDto } from './github.types';
 import { EnvironmentService } from '../environment/environment.service';
@@ -24,31 +25,57 @@ export class GithubSyncService {
     private readonly gh: GithubService,
     private readonly mapper: GithubMapper,
     private readonly rewriter: GithubLinkRewriter,
+    private readonly progress: GithubSyncProgressService,
     private readonly env: EnvironmentService,
     private readonly collab: CollaborationGateway,
   ) {}
 
-  async createSourceAndStartFullSync(workspaceId: string, dto: CreateSourceDto) {
-    const src = await this.db
-      .insertInto('githubSources')
-      .values({
-        workspaceId,
-        spaceId: dto.spaceId,
-        githubInstallationId: dto.githubInstallationId,
-        owner: dto.owner,
-        repo: dto.repo,
-        ref: dto.ref,
-        rootDir: dto.rootDir || '',
-        targetPath: dto.targetPath || '',
-        rootPageId: dto.rootPageId || null,
-        active: dto.active ?? true,
-      })
-      .returningAll()
-      .executeTakeFirst();
+  async createSourceAndStartFullSync(
+    workspaceId: string,
+    dto: CreateSourceDto,
+    jobId?: string,
+  ) {
+    try {
+      if (jobId) {
+        this.progress.emit({
+          jobId,
+          type: 'init',
+          message: 'Initializing sync...',
+        });
+      }
 
-    // Trigger full sync (inline for MVP)
-    if (src) await this.fullSync(workspaceId, src.id);
-    return src;
+      const src = await this.db
+        .insertInto('githubSources')
+        .values({
+          workspaceId,
+          spaceId: dto.spaceId,
+          githubInstallationId: dto.githubInstallationId,
+          owner: dto.owner,
+          repo: dto.repo,
+          ref: dto.ref,
+          rootDir: dto.rootDir || '',
+          targetPath: dto.targetPath || '',
+          rootPageId: dto.rootPageId || null,
+          active: dto.active ?? true,
+        })
+        .returningAll()
+        .executeTakeFirst();
+
+      // Trigger full sync (inline for MVP)
+      if (src) await this.fullSync(workspaceId, src.id, { jobId });
+      return src;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      if (jobId) {
+        this.progress.emit({
+          jobId,
+          type: 'error',
+          message: `Failed to create source: ${errorMessage}`,
+          data: { error: errorMessage },
+        });
+      }
+      throw err;
+    }
   }
 
   async listSources(workspaceId: string) {
@@ -81,33 +108,83 @@ export class GithubSyncService {
       .execute();
   }
 
-  async fullSync(workspaceId: string, sourceId: string, opts?: { force?: boolean }) {
-    const source = await this.db
-      .selectFrom('githubSources')
-      .selectAll()
-      .where('id', '=', sourceId)
-      .where('workspaceId', '=', workspaceId)
-      .executeTakeFirst();
+  async fullSync(
+    workspaceId: string,
+    sourceId: string,
+    opts?: { force?: boolean; jobId?: string },
+  ) {
+    const jobId = opts?.jobId;
 
-    if (!source) {
-      throw new NotFoundException('Source not found');
-    }
+    try {
+      const source = await this.db
+        .selectFrom('githubSources')
+        .selectAll()
+        .where('id', '=', sourceId)
+        .where('workspaceId', '=', workspaceId)
+        .executeTakeFirst();
 
-    this.logger.log(`Full sync start for source ${sourceId}`);
+      if (!source) {
+        throw new NotFoundException('Source not found');
+      }
 
-    const token = await this.gh.getInstallationToken(source.githubInstallationId);
-    const tree = await this.gh.getTree(source.owner, source.repo, source.ref, token);
+      this.logger.log(`Full sync start for source ${sourceId}`);
 
-    const files: Array<{ path: string }> = (tree?.tree || [])
-      .filter((n: any) => n.type === 'blob')
-      .map((n: any) => ({ path: n.path as string }))
-      .filter((n) => /\.(md|mdx)$/i.test(n.path));
+      if (jobId) {
+        this.progress.emit({
+          jobId,
+          type: 'fetching_tree',
+          message: 'Fetching repository file tree from GitHub...',
+        });
+      }
 
-    // Cache for folder pages to avoid redundant DB lookups/creates per run
-    const folderCache = new Map<string, string | null>();
+      const token = await this.gh.getInstallationToken(source.githubInstallationId);
+      const tree = await this.gh.getTree(source.owner, source.repo, source.ref, token);
 
-    for (const f of files) {
-      let relPath = f.path;
+      const files: Array<{ path: string }> = (tree?.tree || [])
+        .filter((n: any) => n.type === 'blob')
+        .map((n: any) => ({ path: n.path as string }))
+        .filter((n) => /\.(md|mdx)$/i.test(n.path));
+
+      if (jobId) {
+        this.progress.emit({
+          jobId,
+          type: 'tree_fetched',
+          message: `Found ${files.length} Markdown files`,
+          data: { totalFiles: files.length },
+        });
+      }
+
+      // Cache for folder pages to avoid redundant DB lookups/creates per run
+      const folderCache = new Map<string, string | null>();
+
+      if (jobId) {
+        this.progress.emit({
+          jobId,
+          type: 'syncing_files',
+          message: 'Syncing files...',
+          progress: { current: 0, total: files.length },
+        });
+      }
+
+      let syncedCount = 0;
+      for (const f of files) {
+        syncedCount++;
+
+        // Emit progress for each file
+        if (jobId) {
+          // Emit progress every file for small repos, every 5 files for large repos
+          const shouldEmit = files.length <= 20 || syncedCount % 5 === 0 || syncedCount === files.length;
+          if (shouldEmit) {
+            this.progress.emit({
+              jobId,
+              type: 'file_synced',
+              message: `Processing file ${syncedCount}/${files.length}...`,
+              progress: { current: syncedCount, total: files.length },
+            });
+          }
+        }
+
+        let relPath = f.path;
       if (source.rootDir) {
         const prefix = source.rootDir.endsWith('/') ? source.rootDir : `${source.rootDir}/`;
         if (!relPath.startsWith(prefix)) {
@@ -277,6 +354,28 @@ export class GithubSyncService {
     }
 
     this.logger.log(`Full sync done for source ${sourceId}`);
+
+    if (jobId) {
+      this.progress.emit({
+        jobId,
+        type: 'completed',
+        message: `Sync completed! Processed ${files.length} files.`,
+        data: { syncedCount: files.length },
+      });
+    }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      this.logger.error(`Full sync failed for source ${sourceId}:`, err);
+      if (jobId) {
+        this.progress.emit({
+          jobId,
+          type: 'error',
+          message: `Sync failed: ${errorMessage}`,
+          data: { error: errorMessage },
+        });
+      }
+      throw err;
+    }
   }
 
   /**

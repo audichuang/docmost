@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Post, Query, UseGuards, Param, HttpCode, ParseUUIDPipe, ForbiddenException, Patch, Delete, Res, Req } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards, Param, HttpCode, ParseUUIDPipe, ForbiddenException, Patch, Delete, Res, Req, Sse } from '@nestjs/common';
 import { FastifyReply, FastifyRequest } from 'fastify';
+import { Observable, map } from 'rxjs';
 import { GithubService } from './github.service';
 import { GithubSyncService } from './github.sync.service';
+import { GithubSyncProgressService } from './github-sync-progress.service';
 import { CreateSourceDto, ListReposQueryDto, UpdateSourceDto, LinkInstallationDto } from './github.types';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Public } from '../../common/decorators/public.decorator';
@@ -21,6 +23,7 @@ export class GithubController {
   constructor(
     private readonly gh: GithubService,
     private readonly sync: GithubSyncService,
+    private readonly progress: GithubSyncProgressService,
     private readonly spaceAbility: SpaceAbilityFactory,
     private readonly env: EnvironmentService,
     @InjectKysely() private readonly db: KyselyDB,
@@ -163,8 +166,22 @@ export class GithubController {
     if (ability.cannot(SpaceCaslAction.Edit, SpaceCaslSubject.Page)) {
       throw new ForbiddenException();
     }
-    // TODO: persist into github_sources and enqueue full sync
-    return this.sync.createSourceAndStartFullSync(workspace.id, dto);
+    // Generate a unique job ID for progress tracking
+    const jobId = `sync-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+
+    // Start sync in background and return jobId immediately
+    setImmediate(() => {
+      this.sync.createSourceAndStartFullSync(workspace.id, dto, jobId);
+    });
+
+    return { jobId };
+  }
+
+  @Sse('sources/progress/:jobId')
+  syncProgress(@Param('jobId') jobId: string): Observable<any> {
+    return this.progress.getProgressStream(jobId).pipe(
+      map((event) => ({ data: event })),
+    );
   }
 
   @Get('sources')
