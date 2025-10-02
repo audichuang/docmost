@@ -39,54 +39,97 @@ export default function SourceTable({ spaces = [], refreshToken }: { spaces?: { 
     }
   };
 
-  if (loading) return <Text c="dimmed">Loading sources...</Text>;
+  if (loading) return <Text c="dimmed" size="sm">Loading sources...</Text>;
+
+  if (sources.length === 0) {
+    return (
+      <Text c="dimmed" size="sm" ta="center" py="xl">
+        No sources configured yet. Add your first source above to get started.
+      </Text>
+    );
+  }
 
   return (
     <ScrollArea type="auto" offsetScrollbars>
-    <Table miw={1000} stickyHeader>
-      <Table.Thead>
-        <Table.Tr>
-          <Table.Th>Space</Table.Th>
-          <Table.Th>Repository</Table.Th>
-          <Table.Th>Ref</Table.Th>
-          <Table.Th>Root</Table.Th>
-          <Table.Th>Status</Table.Th>
-          <Table.Th>Last Event</Table.Th>
-          <Table.Th>Updated</Table.Th>
-          <Table.Th></Table.Th>
-        </Table.Tr>
-      </Table.Thead>
-      <Table.Tbody>
-        {sources.map((s) => (
-          <Table.Tr key={s.id}>
-            <Table.Td>{spaces.find((sp) => sp.id === s.spaceId)?.name || s.spaceId}</Table.Td>
-            <Table.Td>{s.owner}/{s.repo}</Table.Td>
-            <Table.Td>{s.ref}</Table.Td>
-            <Table.Td>{s.rootDir || '/'}</Table.Td>
-            <Table.Td>
-              <SyncStatusTag status={s.lastEventOk === true ? 'ok' : s.lastEventOk === false ? 'error' : 'idle'} />
-            </Table.Td>
-            <Table.Td>{s.lastEventProcessedAt ? new Date(s.lastEventProcessedAt).toLocaleString() : '-'}</Table.Td>
-            <Table.Td>{new Date(s.updatedAt).toLocaleString()}</Table.Td>
-            <Table.Td>
-              <Group justify="right">
-                <Button size="xs" variant="light" onClick={() => onRescan(s.id)} loading={!!rescanMap[s.id]}>Rescan</Button>
-                <Button size="xs" variant={s.active ? 'default' : 'light'} onClick={async () => { await patchSourceActive(s.id, !s.active); await load(); }}>{s.active ? 'Disable' : 'Enable'}</Button>
-                <Button size="xs" color="red" variant="light" onClick={() => {
-                  modals.openConfirmModal({
-                    title: 'Delete source',
-                    children: 'Are you sure you want to delete this source? This will remove the mapping but not pages.',
-                    labels: { confirm: 'Delete', cancel: "Don't" },
-                    confirmProps: { color: 'red' },
-                    onConfirm: async () => { await deleteSourceApi(s.id); await load(); },
-                  });
-                }}>Delete</Button>
-              </Group>
-            </Table.Td>
+      <Table miw={1100} striped highlightOnHover>
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th>Space</Table.Th>
+            <Table.Th>Repository</Table.Th>
+            <Table.Th>Ref</Table.Th>
+            <Table.Th>Root Dir</Table.Th>
+            <Table.Th>Target Path</Table.Th>
+            <Table.Th>Status</Table.Th>
+            <Table.Th>Last Event</Table.Th>
+            <Table.Th>Updated</Table.Th>
+            <Table.Th></Table.Th>
           </Table.Tr>
-        ))}
-      </Table.Tbody>
-    </Table>
+        </Table.Thead>
+        <Table.Tbody>
+          {sources.map((s) => (
+            <Table.Tr key={s.id}>
+              <Table.Td>{spaces.find((sp) => sp.id === s.spaceId)?.name || s.spaceId}</Table.Td>
+              <Table.Td>
+                <Text size="sm" fw={500}>{s.owner}/{s.repo}</Text>
+              </Table.Td>
+              <Table.Td>
+                <Text size="sm" c="dimmed">{s.ref}</Text>
+              </Table.Td>
+              <Table.Td>
+                <Text size="sm" c="dimmed">{s.rootDir || '/'}</Text>
+              </Table.Td>
+              <Table.Td>
+                <Text size="sm" c="dimmed">{s.targetPath || '-'}</Text>
+              </Table.Td>
+              <Table.Td>
+                <SyncStatusTag status={s.lastEventOk === true ? 'ok' : s.lastEventOk === false ? 'error' : 'idle'} />
+              </Table.Td>
+              <Table.Td>
+                <Text size="sm">{s.lastEventProcessedAt ? new Date(s.lastEventProcessedAt).toLocaleString() : '-'}</Text>
+              </Table.Td>
+              <Table.Td>
+                <Text size="sm">{new Date(s.updatedAt).toLocaleString()}</Text>
+              </Table.Td>
+              <Table.Td>
+                <Group justify="right" gap="xs">
+                  <Button
+                    size="xs"
+                    variant="light"
+                    color="blue"
+                    onClick={() => onRescan(s.id)}
+                    loading={!!rescanMap[s.id]}
+                  >
+                    Rescan
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="subtle"
+                    onClick={async () => { await patchSourceActive(s.id, !s.active); await load(); }}
+                  >
+                    {s.active ? 'Disable' : 'Enable'}
+                  </Button>
+                  <Button
+                    size="xs"
+                    color="red"
+                    variant="light"
+                    onClick={() => {
+                      modals.openConfirmModal({
+                        title: 'Delete source',
+                        children: 'Are you sure you want to delete this source? This will remove the mapping but not delete pages.',
+                        labels: { confirm: 'Delete', cancel: "Cancel" },
+                        confirmProps: { color: 'red' },
+                        onConfirm: async () => { await deleteSourceApi(s.id); await load(); },
+                      });
+                    }}
+                  >
+                    Delete
+                  </Button>
+                </Group>
+              </Table.Td>
+            </Table.Tr>
+          ))}
+        </Table.Tbody>
+      </Table>
     </ScrollArea>
   );
 }
