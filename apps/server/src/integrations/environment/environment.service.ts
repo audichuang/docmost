@@ -1,10 +1,38 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import ms, { StringValue } from 'ms';
+import * as fs from 'fs';
+import * as path from 'path';
 
 @Injectable()
 export class EnvironmentService {
-  constructor(private configService: ConfigService) {}
+  private projectRoot: string;
+
+  constructor(private configService: ConfigService) {
+    this.projectRoot = this.findProjectRoot();
+  }
+
+  private findProjectRoot(): string {
+    let currentDir = __dirname;
+
+    while (currentDir !== path.parse(currentDir).root) {
+      const pkgPath = path.join(currentDir, 'package.json');
+      if (fs.existsSync(pkgPath)) {
+        try {
+          const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+          if (pkg.workspaces) {
+            return currentDir;
+          }
+        } catch {
+          // Ignore invalid package.json
+        }
+      }
+      currentDir = path.dirname(currentDir);
+    }
+
+    // Fallback to process.cwd() if monorepo root not found
+    return process.cwd();
+  }
 
   getNodeEnv(): string {
     return this.configService.get<string>('NODE_ENV', 'development');
@@ -248,6 +276,23 @@ export class EnvironmentService {
   }
 
   getGithubPrivateKey(): string {
+    const keyPath = this.configService.get<string>('GITHUB_APP_PRIVATE_KEY_PATH');
+
+    if (keyPath) {
+      try {
+        const absolutePath = path.isAbsolute(keyPath)
+          ? keyPath
+          : path.join(this.projectRoot, keyPath);
+
+        if (fs.existsSync(absolutePath)) {
+          return fs.readFileSync(absolutePath, 'utf8');
+        }
+      } catch (err) {
+        console.error('Failed to read GitHub private key from file:', err);
+      }
+    }
+
+    // Fallback to direct env var (legacy method)
     return this.configService.get<string>('GITHUB_APP_PRIVATE_KEY');
   }
 
