@@ -239,6 +239,10 @@ export class EnvironmentService {
     return this.configService.get<string>('GITHUB_APP_ID');
   }
 
+  getGithubAppSlug(): string {
+    return this.configService.get<string>('GITHUB_APP_SLUG');
+  }
+
   getGithubClientId(): string {
     return this.configService.get<string>('GITHUB_APP_CLIENT_ID');
   }

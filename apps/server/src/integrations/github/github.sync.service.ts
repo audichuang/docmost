@@ -853,4 +853,61 @@ export class GithubSyncService {
       .executeTakeFirst();
     return { ok: true, id: row?.id };
   }
+
+  async handleInstallation(payload: any, event: string) {
+    const action = payload.action;
+    const installation = payload.installation;
+
+    if (!installation) {
+      this.logger.warn('Installation webhook missing installation data');
+      return;
+    }
+
+    const installationId = String(installation.id);
+    const accountLogin = installation.account?.login;
+    const accountType = installation.account?.type;
+    const appId = this.env.getGithubAppId();
+
+    if (!accountLogin || !accountType) {
+      this.logger.warn('Installation webhook missing account data');
+      return;
+    }
+
+    // Find all workspaces that have this installation
+    const existingInstalls = await this.db
+      .selectFrom('githubInstallations')
+      .selectAll()
+      .where('installationId', '=', installationId)
+      .execute();
+
+    if (action === 'deleted' || action === 'suspend') {
+      // Remove installation from all workspaces
+      this.logger.log(`Installation ${installationId} deleted/suspended, removing from ${existingInstalls.length} workspace(s)`);
+      await this.db
+        .deleteFrom('githubInstallations')
+        .where('installationId', '=', installationId)
+        .execute();
+      return;
+    }
+
+    if (action === 'created' || action === 'added' || action === 'unsuspend') {
+      // If no existing installations, we can't auto-link to a workspace
+      // User must manually link via the UI or we need to store pending installations
+      if (existingInstalls.length === 0) {
+        this.logger.log(`New installation ${installationId} for ${accountLogin}, waiting for user to link workspace`);
+        return;
+      }
+
+      // Update existing installations
+      const now = new Date();
+      for (const existing of existingInstalls) {
+        await this.db
+          .updateTable('githubInstallations')
+          .set({ accountLogin, accountType, appId, updatedAt: now })
+          .where('id', '=', existing.id)
+          .execute();
+      }
+      this.logger.log(`Installation ${installationId} updated in ${existingInstalls.length} workspace(s)`);
+    }
+  }
 }
