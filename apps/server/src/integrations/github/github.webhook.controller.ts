@@ -43,7 +43,10 @@ export class GithubWebhookController {
       await this.sync.handlePush(req.body, delivery);
       return { ok: true };
     }
-    // installation/repository events can be handled later
+    if (event === 'installation' || event === 'installation_repositories') {
+      await this.sync.handleInstallation(req.body, event);
+      return { ok: true };
+    }
     return { ok: true };
   }
 }

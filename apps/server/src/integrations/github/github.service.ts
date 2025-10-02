@@ -239,4 +239,87 @@ export class GithubService {
     const tagItems = tags.map((t: any) => ({ name: t?.name, type: 'tag' }));
     return { items: [...branchItems, ...tagItems] };
   }
+
+  async getInstallationInfo(installationId: string) {
+    const appJwt = this.getAppJwt();
+    const url = `${this.apiBase}/app/installations/${installationId}`;
+
+    try {
+      const data = await this.fetchJson(url, {
+        headers: this.headers(appJwt),
+      });
+      return data;
+    } catch (err) {
+      this.logger.error(`Failed to get installation ${installationId}`, err);
+      return null;
+    }
+  }
+
+  async syncInstallationsFromGitHub(workspaceId: string) {
+    const appJwt = this.getAppJwt();
+    const url = `${this.apiBase}/app/installations`;
+
+    try {
+      const data = await this.fetchJson(url, {
+        headers: this.headers(appJwt),
+      });
+
+      const installations = Array.isArray(data) ? data : [];
+      const appId = this.env.getGithubAppId();
+      const now = new Date();
+
+      const synced = [];
+      for (const inst of installations) {
+        const installationId = String(inst.id);
+        const accountLogin = inst.account?.login;
+        const accountType = inst.account?.type;
+
+        if (!accountLogin || !accountType) continue;
+
+        const existing = await this.db
+          .selectFrom('githubInstallations')
+          .select(['id'])
+          .where('workspaceId', '=', workspaceId)
+          .where('installationId', '=', installationId)
+          .executeTakeFirst();
+
+        if (existing) {
+          await this.db
+            .updateTable('githubInstallations')
+            .set({ accountLogin, accountType, appId, updatedAt: now })
+            .where('id', '=', existing.id)
+            .execute();
+        } else {
+          await this.db
+            .insertInto('githubInstallations')
+            .values({
+              workspaceId,
+              appId,
+              installationId,
+              accountLogin,
+              accountType,
+              createdAt: now,
+              updatedAt: now,
+            } as any)
+            .execute();
+        }
+        synced.push(installationId);
+      }
+
+      // Remove installations that no longer exist on GitHub
+      if (synced.length > 0) {
+        await this.db
+          .deleteFrom('githubInstallations')
+          .where('workspaceId', '=', workspaceId)
+          .where('installationId', 'not in', synced)
+          .execute();
+      }
+
+      this.logger.log(`Synced ${synced.length} installation(s) for workspace ${workspaceId}`);
+      return { synced: synced.length };
+    } catch (err) {
+      this.logger.error('Failed to sync installations from GitHub', err);
+      throw err;
+    }
+  }
 }

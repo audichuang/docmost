@@ -28,6 +28,21 @@ export async function listInstallations(): Promise<GithubInstallation[]> {
   return req.data;
 }
 
+export async function syncInstallations(): Promise<{ synced: number }> {
+  const req = await api.post('/integrations/github/installations/sync');
+  return req.data;
+}
+
+export async function getAuthUrl(): Promise<{ url: string }> {
+  const req = await api.get('/integrations/github/installations/auth-url');
+  return req.data;
+}
+
+export async function deleteInstallation(id: string): Promise<{ ok: boolean }> {
+  const req = await api.delete(`/integrations/github/installations/${id}`);
+  return req.data;
+}
+
 export async function listRepos(githubInstallationId: string): Promise<{ total_count: number; repositories: any[] }> {
   const req = await api.get('/integrations/github/repos', { params: { githubInstallationId } });
   return req.data;
