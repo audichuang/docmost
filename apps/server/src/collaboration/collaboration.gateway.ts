@@ -67,4 +67,17 @@ export class CollaborationGateway {
   async destroy(): Promise<void> {
     await this.hocuspocus.destroy();
   }
+
+  /**
+   * Disconnect all clients for a given document (e.g., 'page.<pageId>').
+   * This forces the document to be unloaded from memory so the next
+   * access will rehydrate from the database.
+   */
+  closeDocumentConnections(documentName: string) {
+    try {
+      this.hocuspocus.closeConnections(documentName);
+    } catch (e) {
+      // no-op: best-effort eviction
+    }
+  }
 }

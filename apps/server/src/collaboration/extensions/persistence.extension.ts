@@ -114,6 +114,13 @@ export class PersistenceExtension implements Extension {
           return;
         }
 
+        // Prevent editing GitHub-managed (locked) pages
+        if (page.isLocked) {
+          this.logger.debug(`Page ${pageId} is locked (GitHub-managed), skipping update`);
+          page = null;
+          return;
+        }
+
         if (isDeepStrictEqual(tiptapJson, page.content)) {
           page = null;
           return;

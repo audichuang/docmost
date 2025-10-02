@@ -12,6 +12,7 @@ import { GithubLinkRewriter } from './github.link-rewriter';
 import { createYdocFromJson } from '../../common/helpers/prosemirror/utils';
 import { CreateSourceDto, LinkInstallationDto } from './github.types';
 import { EnvironmentService } from '../environment/environment.service';
+import { CollaborationGateway } from '../../collaboration/collaboration.gateway';
 
 @Injectable()
 export class GithubSyncService {
@@ -24,6 +25,7 @@ export class GithubSyncService {
     private readonly mapper: GithubMapper,
     private readonly rewriter: GithubLinkRewriter,
     private readonly env: EnvironmentService,
+    private readonly collab: CollaborationGateway,
   ) {}
 
   async createSourceAndStartFullSync(workspaceId: string, dto: CreateSourceDto) {
@@ -189,9 +191,12 @@ export class GithubSyncService {
             textContent,
             ydoc: ydocBuf,
             lastUpdatedById: await this.getDefaultWorkspaceUserId(workspaceId),
+            isLocked: true,
           },
           folderPageId,
         );
+        // Evict in-memory collab doc
+        this.collab.closeDocumentConnections(`page.${folderPageId}`);
 
         // ensure folder mapping row exists for the directory path (with trailing slash)
         await this.upsertFolderMapping(source.id, relDir, title, folderPageId);
@@ -210,9 +215,11 @@ export class GithubSyncService {
             textContent,
             ydoc: ydocBuf,
             lastUpdatedById: await this.getDefaultWorkspaceUserId(workspaceId),
+            isLocked: true,
           },
           existing.pageId,
         );
+        this.collab.closeDocumentConnections(`page.${existing.pageId}`);
         // Ensure correct tree placement according to folder structure
         await this.db
           .updateTable('pages')
@@ -233,8 +240,10 @@ export class GithubSyncService {
           creatorId: await this.getDefaultWorkspaceUserId(workspaceId),
           workspaceId,
           lastUpdatedById: await this.getDefaultWorkspaceUserId(workspaceId),
+          isLocked: true,
         });
         this.logger.debug(`[fullSync] ${source.id} ${relPath} -> create page ${created.id} parent=${folderPageId ?? source.rootPageId ?? null}`);
+        this.collab.closeDocumentConnections(`page.${created.id}`);
 
         // link mapping to page
         await this.upsertGithubFile(source.id, relPath, body.sha, contentRes.etag, title, created.id);
@@ -610,9 +619,11 @@ export class GithubSyncService {
                 textContent,
                 ydoc: ydocBuf,
                 lastUpdatedById: await this.getDefaultWorkspaceUserId(source.workspaceId),
+                isLocked: true,
               },
               folderPageId,
             );
+            this.collab.closeDocumentConnections(`page.${folderPageId}`);
             await this.upsertFolderMapping(source.id, relDir, title, folderPageId);
             await this.upsertGithubFile(source.id, relPath, body.sha, contentRes.etag, title, folderPageId);
             continue;
@@ -626,9 +637,11 @@ export class GithubSyncService {
                 textContent,
                 ydoc: ydocBuf,
                 lastUpdatedById: await this.getDefaultWorkspaceUserId(source.workspaceId),
+                isLocked: true,
               },
               existing.pageId,
             );
+            this.collab.closeDocumentConnections(`page.${existing.pageId}`);
             // Ensure correct parent (folder wrapper) in case page was created before folder hierarchy support
             await this.db
               .updateTable('pages')
@@ -649,7 +662,9 @@ export class GithubSyncService {
               creatorId: await this.getDefaultWorkspaceUserId(source.workspaceId),
               workspaceId: source.workspaceId,
               lastUpdatedById: await this.getDefaultWorkspaceUserId(source.workspaceId),
+              isLocked: true,
             });
+            this.collab.closeDocumentConnections(`page.${created.id}`);
             await this.upsertGithubFile(source.id, relPath, body.sha, contentRes.etag, title, created.id);
             if (rewrite.attachmentIds.length > 0) {
               await this.db
