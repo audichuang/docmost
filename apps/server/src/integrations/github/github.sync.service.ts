@@ -39,6 +39,7 @@ export class GithubSyncService {
         repo: dto.repo,
         ref: dto.ref,
         rootDir: dto.rootDir || '',
+        targetPath: dto.targetPath || '',
         rootPageId: dto.rootPageId || null,
         active: dto.active ?? true,
       })
@@ -278,19 +279,105 @@ export class GithubSyncService {
     this.logger.log(`Full sync done for source ${sourceId}`);
   }
 
+  /**
+   * Ensure target path folder pages exist (e.g., 'AWS/SAA'), return deepest folder pageId.
+   * This creates the base folder structure for the source content in the Space.
+   */
+  private async ensureTargetPath(
+    workspaceId: string,
+    source: { id: string; spaceId: string; rootPageId: string | null; targetPath: string },
+    cache: Map<string, string | null>,
+  ): Promise<string | null> {
+    if (!source.targetPath || source.targetPath.trim() === '') {
+      return source.rootPageId ?? null;
+    }
+
+    const cacheKey = `__target__${source.targetPath}`;
+    if (cache.has(cacheKey)) {
+      return cache.get(cacheKey)!;
+    }
+
+    const segments = source.targetPath.split('/').filter(s => s.trim());
+    let currentPath = '';
+    let parentId: string | null = source.rootPageId ?? null;
+
+    for (const seg of segments) {
+      currentPath = currentPath ? `${currentPath}/${seg}` : seg;
+      const segCacheKey = `__target__${currentPath}`;
+
+      if (cache.has(segCacheKey)) {
+        parentId = cache.get(segCacheKey)!;
+        continue;
+      }
+
+      // Look for existing target path folder mapping
+      const mapping = await this.db
+        .selectFrom('githubFiles')
+        .select(['id', 'pageId'])
+        .where('sourceId', '=', source.id)
+        .where('path', '=', `__target__${currentPath}/`)
+        .executeTakeFirst();
+
+      if (mapping?.pageId) {
+        parentId = mapping.pageId;
+        cache.set(segCacheKey, parentId);
+        continue;
+      }
+
+      // Create target path folder page
+      const title = this.titleFromSegment(seg);
+      const empty = { type: 'doc', content: [{ type: 'paragraph', content: [] }] } as any;
+      const ydocBuf = createYdocFromJson(empty);
+      const created = await this.pageRepo.insertPage({
+        slugId: generateSlugId(),
+        title,
+        content: empty,
+        textContent: '',
+        ydoc: ydocBuf,
+        position: await this.nextPagePosition(source.spaceId, parentId ?? undefined),
+        parentPageId: parentId,
+        spaceId: source.spaceId,
+        creatorId: await this.getDefaultWorkspaceUserId(workspaceId),
+        workspaceId,
+        lastUpdatedById: await this.getDefaultWorkspaceUserId(workspaceId),
+      });
+
+      // Store mapping with special prefix to distinguish from repo folders
+      await this.upsertFolderMapping(source.id, `__target__${currentPath}`, title, created.id);
+      parentId = created.id;
+      cache.set(segCacheKey, parentId);
+    }
+
+    cache.set(cacheKey, parentId);
+    return parentId;
+  }
+
   /** Ensure folder chain pages exist for relDir (e.g., 'a/b'), return deepest folder pageId or null when relDir is ''. */
   private async ensureFolderChain(
     workspaceId: string,
-    source: { id: string; spaceId: string; rootPageId: string | null },
+    source: { id: string; spaceId: string; rootPageId: string | null; targetPath?: string },
     relDir: string,
     cache: Map<string, string | null>,
   ): Promise<string | null> {
-    if (!relDir) return source.rootPageId ?? null;
-    if (cache.has(relDir)) return cache.get(relDir)!;
+    // First ensure target path exists (if configured)
+    let baseParentId = source.rootPageId ?? null;
+    if (source.targetPath && source.targetPath.trim() !== '') {
+      baseParentId = await this.ensureTargetPath(
+        workspaceId,
+        { ...source, targetPath: source.targetPath },
+        cache,
+      );
+    }
+
+    if (!relDir) return baseParentId;
+
+    // Use targetPath as prefix in cache key to avoid conflicts
+    const cacheKey = source.targetPath ? `${source.targetPath}/${relDir}` : relDir;
+    if (cache.has(cacheKey)) return cache.get(cacheKey)!;
 
     const segments = relDir.split('/');
     let currentPath = '';
-    let parentId: string | null = source.rootPageId ?? null;
+    let parentId: string | null = baseParentId;
 
     for (const seg of segments) {
       currentPath = currentPath ? `${currentPath}/${seg}` : seg;
@@ -331,7 +418,7 @@ export class GithubSyncService {
       parentId = created.id;
     }
 
-    cache.set(relDir, parentId);
+    cache.set(cacheKey, parentId);
     return parentId;
   }
 

@@ -55,10 +55,12 @@ export default function Page() {
         </Helmet>
 
         <MemoizedPageHeader
-          readOnly={spaceAbility.cannot(
-            SpaceCaslAction.Manage,
-            SpaceCaslSubject.Page,
-          )}
+          readOnly={
+            spaceAbility.cannot(
+              SpaceCaslAction.Manage,
+              SpaceCaslSubject.Page,
+            ) || page.isLocked
+          }
         />
 
         <MemoizedFullEditor

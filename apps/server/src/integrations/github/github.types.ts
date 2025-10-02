@@ -17,6 +17,10 @@ export class CreateSourceDto {
   @IsOptional()
   rootDir?: string;
 
+  @IsString()
+  @IsOptional()
+  targetPath?: string;
+
   @IsUUID()
   spaceId: string;
 

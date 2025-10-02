@@ -15,6 +15,7 @@ export type GithubSource = {
   repo: string;
   ref: string;
   rootDir: string;
+  targetPath: string;
   rootPageId?: string | null;
   active: boolean;
   updatedAt: string;
@@ -43,6 +44,7 @@ export async function createSource(payload: {
   repo: string;
   ref: string;
   rootDir?: string;
+  targetPath?: string;
   spaceId: string;
   rootPageId?: string;
   active?: boolean;

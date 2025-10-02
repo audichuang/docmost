@@ -216,6 +216,7 @@ export interface GithubSources {
   rootDir: Generated<string>;
   rootPageId: string | null;
   spaceId: string;
+  targetPath: Generated<string>;
   updatedAt: Generated<Timestamp>;
   workspaceId: string;
 }

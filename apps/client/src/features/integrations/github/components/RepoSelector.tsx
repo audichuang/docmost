@@ -10,6 +10,7 @@ export default function RepoSelector({ installations, spaces, onCreated }: { ins
   const [ref, setRef] = useState('');
   const [refOptions, setRefOptions] = useState<{ name: string; type: 'branch' | 'tag' }[]>([]);
   const [rootDir, setRootDir] = useState('');
+  const [targetPath, setTargetPath] = useState('');
   const [spaceId, setSpaceId] = useState<string | null>(null);
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -48,7 +49,15 @@ export default function RepoSelector({ installations, spaces, onCreated }: { ins
     if (!installationId || !owner || !repo || !ref || !spaceId) return;
     setCreating(true);
     try {
-      await createSource({ githubInstallationId: installationId, owner, repo, ref, rootDir: rootDir || '', spaceId });
+      await createSource({
+        githubInstallationId: installationId,
+        owner,
+        repo,
+        ref,
+        rootDir: rootDir || '',
+        targetPath: targetPath || '',
+        spaceId
+      });
       onCreated?.();
     } finally {
       setCreating(false);
@@ -56,10 +65,27 @@ export default function RepoSelector({ installations, spaces, onCreated }: { ins
   };
 
   return (
-    <Stack>
+    <Stack gap="md">
       <Group grow>
-        <Select label="Installation" placeholder="Select installation" data={installations.map((i) => ({ value: i.id, label: i.accountLogin }))} value={installationId} onChange={setInstallationId} />
-        <Select label="Repository" placeholder={loadingRepos ? 'Loading...' : 'owner/repo'} searchable data={repos.map((r) => ({ value: r.full_name, label: r.full_name }))} onChange={(v) => v && onSelectRepo(v)} />
+        <Select
+          label="Installation"
+          placeholder="Select installation"
+          data={installations.map((i) => ({ value: i.id, label: i.accountLogin }))}
+          value={installationId}
+          onChange={setInstallationId}
+          required
+          withAsterisk
+        />
+        <Select
+          label="Repository"
+          placeholder={loadingRepos ? 'Loading...' : 'owner/repo'}
+          searchable
+          data={repos.map((r) => ({ value: r.full_name, label: r.full_name }))}
+          onChange={(v) => v && onSelectRepo(v)}
+          disabled={!installationId}
+          required
+          withAsterisk
+        />
       </Group>
       <Group grow>
         <Select
@@ -70,14 +96,45 @@ export default function RepoSelector({ installations, spaces, onCreated }: { ins
           data={refOptions.map((i) => ({ value: i.name, label: i.type === 'tag' ? `${i.name} (tag)` : i.name }))}
           value={ref}
           onChange={(v) => setRef(v || '')}
+          disabled={!owner || !repo}
+          required
+          withAsterisk
         />
-        <TextInput label="Root directory (optional)" placeholder="e.g. docs" value={rootDir} onChange={(e) => setRootDir(e.currentTarget.value)} />
+        <TextInput
+          label="Root directory"
+          placeholder="e.g. docs (optional)"
+          value={rootDir}
+          onChange={(e) => setRootDir(e.currentTarget.value)}
+          description="Sync only this subdirectory from the repo"
+        />
       </Group>
       <Group grow>
-        <Select label="Space" placeholder="Select space" data={spaces.map((s) => ({ value: s.id, label: s.name }))} value={spaceId} onChange={setSpaceId} />
+        <Select
+          label="Space"
+          placeholder="Select space"
+          data={spaces.map((s) => ({ value: s.id, label: s.name }))}
+          value={spaceId}
+          onChange={setSpaceId}
+          required
+          withAsterisk
+        />
+        <TextInput
+          label="Target path in Space"
+          placeholder="e.g. SAA or AWS/SAA (optional)"
+          value={targetPath}
+          onChange={(e) => setTargetPath(e.currentTarget.value)}
+          description="Create this folder structure and place content inside"
+        />
       </Group>
-      <Group justify="flex-end">
-        <Button onClick={onCreate} loading={creating} disabled={!installationId || !owner || !repo || !ref || !spaceId}>Create source</Button>
+      <Group justify="flex-end" mt="xs">
+        <Button
+          onClick={onCreate}
+          loading={creating}
+          disabled={!installationId || !owner || !repo || !ref || !spaceId}
+          variant="filled"
+        >
+          Create source
+        </Button>
       </Group>
     </Stack>
   );
