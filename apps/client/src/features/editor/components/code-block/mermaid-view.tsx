@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from "uuid";
 import classes from "./code-block.module.css";
 import { useTranslation } from "react-i18next";
 import { useComputedColorScheme } from "@mantine/core";
+import MermaidZoomModal from "@/features/editor/components/code-block/mermaid-zoom-modal";
 
 interface MermaidViewProps {
   props: NodeViewProps;
@@ -15,6 +16,7 @@ export default function MermaidView({ props }: MermaidViewProps) {
   const computedColorScheme = useComputedColorScheme();
   const { node } = props;
   const [preview, setPreview] = useState<string>("");
+  const [opened, setOpened] = useState(false);
 
   // Update Mermaid config when theme changes.
   useEffect(() => {
@@ -49,10 +51,18 @@ export default function MermaidView({ props }: MermaidViewProps) {
   }, [node.textContent, computedColorScheme]);
 
   return (
-    <div
-      className={classes.mermaid}
-      contentEditable={false}
-      dangerouslySetInnerHTML={{ __html: preview }}
-    ></div>
+    <>
+      <div
+        className={`${classes.mermaid} ${classes.mermaidClickable}`}
+        contentEditable={false}
+        onClick={() => !props.editor.isEditable && preview && setOpened(true)}
+        dangerouslySetInnerHTML={{ __html: preview }}
+      />
+      <MermaidZoomModal
+        opened={opened}
+        onClose={() => setOpened(false)}
+        code={node.textContent}
+      />
+    </>
   );
 }

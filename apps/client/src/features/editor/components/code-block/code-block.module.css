@@ -17,6 +17,11 @@
     justify-content: center;
 }
 
+.mermaidClickable {
+    position: relative;
+    cursor: zoom-in;
+}
+
 .menuGroup {
     @media print {
         display: none;
