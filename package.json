@@ -15,7 +15,7 @@
     "server:dev": "pnpm -C apps/server start:dev",
     "server:start": "pnpm -C apps/server start:prod",
     "email:dev": "nx run server:email:dev",
-    "dev": "pnpm run client:build && pnpm -C apps/server start:dev"
+    "dev": "pnpm run client:build && PORT=3500 pnpm -C apps/server start:dev\n"
   },
   "dependencies": {
     "@braintree/sanitize-url": "^7.1.0",
