@@ -1,10 +1,16 @@
-name: Build and Push Docker Image
+name: CI/CD Pipeline
 
 # ===== 可配置變數 =====
 env:
   BRANCH_NAME: dev                    # 觸發的分支名稱
   IMAGE_NAME: docmost                 # Docker image 名稱
-  PLATFORMS: linux/amd64  # 支援的平台
+  PLATFORMS: linux/amd64              # 支援的平台
+
+  # K8s 部署配置
+  K8S_NAMESPACE: docmost-k3s          # K8s namespace
+  K8S_DEPLOYMENT: docmost             # Deployment 名稱
+  K8S_SERVICE: docmost                # 服務名稱
+  DEPLOY_VERSION: dev                 # 部署版本標籤
 
 # ===== 觸發條件 =====
 on:
@@ -14,7 +20,11 @@ on:
   workflow_dispatch:  # 允許手動觸發
 
 jobs:
-  build-and-push:
+  # ========================================
+  # CI: 建置和推送 Docker Image
+  # ========================================
+  ci:
+    name: Build and Push
     runs-on: ubuntu-latest
 
     steps:
@@ -67,3 +77,66 @@ jobs:
           echo "✅ Build completed successfully!"
           echo "📦 Image pushed to: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}"
           echo "🏷️  Tags: ${{ steps.meta.outputs.tags }}"
+
+  # ========================================
+  # CD: 部署到 Kubernetes
+  # ========================================
+  deploy:
+    name: Deploy to K8s
+    needs: ci  # 依賴 CI job
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 通知 K8s Manager 進行自動部署
+      - name: Deploy via Webhook
+        run: |
+          echo "🚀 Deploying to Kubernetes..."
+          echo "📦 Service: ${{ env.K8S_SERVICE }}"
+          echo "🏠 Namespace: ${{ env.K8S_NAMESPACE }}"
+          echo "🚢 Deployment: ${{ env.K8S_DEPLOYMENT }}"
+          echo "🏷️  Version: ${{ env.DEPLOY_VERSION }}"
+          echo ""
+
+          # 發送 Webhook 請求
+          RESPONSE=$(curl -X POST "${{ secrets.K8S_MANAGER_URL }}/api/webhook/deploy" \
+            -H "Authorization: Bearer ${{ secrets.WEBHOOK_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"service\": \"${{ env.K8S_SERVICE }}\",
+              \"namespace\": \"${{ env.K8S_NAMESPACE }}\",
+              \"deployment\": \"${{ env.K8S_DEPLOYMENT }}\",
+              \"version\": \"${{ env.DEPLOY_VERSION }}\",
+              \"force\": true,
+              \"branch\": \"${{ github.ref_name }}\",
+              \"commitSha\": \"${{ github.sha }}\",
+              \"ciPipeline\": \"github-actions\",
+              \"triggeredBy\": \"${{ github.actor }}\"
+            }" \
+            -w "\n%{http_code}" \
+            -s)
+
+          # 分離 HTTP 狀態碼和回應內容
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          echo "📡 Webhook Response:"
+          echo "----------------------------------------"
+          echo "$BODY"
+          echo "----------------------------------------"
+          echo "HTTP Status: $HTTP_CODE"
+          echo ""
+
+          # 檢查 HTTP 狀態碼
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "✅ Deployment webhook triggered successfully!"
+            echo "🎉 Deployment is in progress"
+            echo ""
+            echo "👉 Check deployment status at:"
+            echo "   ${{ secrets.K8S_MANAGER_URL }}/deployments/${{ env.K8S_NAMESPACE }}/${{ env.K8S_DEPLOYMENT }}"
+            exit 0
+          else
+            echo "❌ Deployment webhook failed with HTTP $HTTP_CODE"
+            echo "📋 Response body:"
+            echo "$BODY"
+            exit 1
+          fi
