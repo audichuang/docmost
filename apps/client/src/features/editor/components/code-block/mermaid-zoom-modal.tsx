@@ -34,13 +34,15 @@ export function MermaidZoomModal({ opened, onClose, code }: MermaidZoomModalProp
     async function render() {
       try {
         const { svg } = await mermaid.render(`modal-mermaid-${Date.now()}`, code);
-        if (!cancelled) setSvg(svg);
+        if (!cancelled) {
+          setSvg(svg);
+          setIsPositioned(false); // Reset positioning state
+        }
       } catch (e) {
         if (!cancelled) setSvg("");
       }
     }
     if (opened && code?.trim()) {
-      setIsPositioned(false); // Reset positioning state
       render();
     }
     return () => {
@@ -97,39 +99,51 @@ export function MermaidZoomModal({ opened, onClose, code }: MermaidZoomModalProp
     }
   };
 
-  // Auto-fit to screen when modal opens
+  // Auto-fit when SVG is ready and modal is opened
   useEffect(() => {
     if (!opened || !svg) return;
 
-    let attempts = 0;
-    const maxAttempts = 3;
-    let timeoutId: NodeJS.Timeout | null = null;
-
-    const tryFit = () => {
-      attempts++;
-
-      // Check if we have all required elements
-      const hasTransform = !!transformRef.current;
-      const hasSvg = !!contentRef.current?.querySelector?.("svg");
-      const hasWrapper = !!transformRef.current?.instance?.wrapperComponent;
-
-      if (hasTransform && hasSvg && hasWrapper) {
-        // No animation on initial load - instant positioning
-        handleFitToScreen(false);
-        // Show content after positioning with fade-in effect
-        setTimeout(() => setIsPositioned(true), 50);
-      } else if (attempts < maxAttempts) {
-        timeoutId = setTimeout(tryFit, 150);
+    // Wait for DOM to be ready, then fit to screen
+    const timeoutId = setTimeout(() => {
+      const svgEl = contentRef.current?.querySelector?.('svg');
+      if (!svgEl || !transformRef.current) {
+        setIsPositioned(true);
+        return;
       }
-    };
 
-    // Shorter initial delay - just enough for DOM to render
-    timeoutId = setTimeout(tryFit, 150);
+      const wrapper = transformRef.current.instance.wrapperComponent;
+      if (!wrapper) {
+        setIsPositioned(true);
+        return;
+      }
 
-    return () => {
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, [opened, svg]);
+      // Get actual rendered SVG dimensions
+      const svgRect = svgEl.getBoundingClientRect();
+      const svgWidth = svgRect.width;
+      const svgHeight = svgRect.height;
+
+      // Get container dimensions
+      const containerWidth = wrapper.clientWidth;
+      const containerHeight = wrapper.clientHeight;
+
+      if (svgWidth > 0 && svgHeight > 0 && containerWidth > 0 && containerHeight > 0) {
+        const padding = 40;
+        const scaleX = (containerWidth - padding * 2) / svgWidth;
+        const scaleY = (containerHeight - padding * 2) / svgHeight;
+
+        // Ensure we don't shrink below original size, and cap at 3x
+        const scale = Math.max(1, Math.min(scaleX, scaleY, 3));
+
+        // Apply the scale
+        transformRef.current.centerView(scale, 0);
+      }
+
+      // Show content with fade-in
+      setTimeout(() => setIsPositioned(true), 50);
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, [svg, opened]);
 
   return (
     <Modal
