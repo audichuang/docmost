@@ -43,29 +43,11 @@ export class ContentTransformerService {
 
     // Get or generate token
     const token = await this.r2TokenService.getOrGenerateToken();
-    this.logger.log(`[R2 Transform] Using Token: ${token}`);
-
-    // Log sample URL before transformation
-    const escapedDomain = r2Domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const urlPattern = new RegExp(
-      `(https?://${escapedDomain}/[^\\s"'\\)>]+?)`,
-      'i',
-    );
-    const sampleMatch = content.match(urlPattern);
-    if (sampleMatch) {
-      this.logger.log(`[R2 Transform] Sample URL Before: ${sampleMatch[0]}`);
-    }
+    const tokenPrefix = token.substring(0, 10);
+    this.logger.log(`[R2 Transform] Using Token: ${tokenPrefix}... (${token.length} chars)`);
 
     // Transform URLs
     const transformedContent = this.appendTokenToUrls(content, r2Domain, token);
-
-    // Log sample URL after transformation
-    const transformedMatch = transformedContent.match(urlPattern);
-    if (transformedMatch) {
-      this.logger.log(
-        `[R2 Transform] Sample URL After: ${transformedMatch[0]}`,
-      );
-    }
 
     this.logger.log(`[R2 Transform] Transformation completed successfully`);
     return transformedContent;

@@ -62,9 +62,27 @@ export class PersistenceExtension implements Extension {
 
       const doc = new Y.Doc();
       const dbState = new Uint8Array(page.ydoc);
-
       Y.applyUpdate(doc, dbState);
-      return doc;
+
+      // Transform R2 image URLs to add tokens
+      try {
+        const tiptapJson = TiptapTransformer.fromYdoc(doc, 'default');
+        const jsonStr = JSON.stringify(tiptapJson);
+        const transformedStr = await this.contentTransformer.transformContent(jsonStr);
+        const transformedJson = JSON.parse(transformedStr);
+
+        const transformedDoc = TiptapTransformer.toYdoc(
+          transformedJson,
+          'default',
+          tiptapExtensions,
+        );
+
+        this.logger.debug(`[Collab] R2 token transformation applied to ydoc for page: ${pageId}`);
+        return transformedDoc;
+      } catch (error) {
+        this.logger.warn(`[Collab] Failed to transform R2 tokens in ydoc: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        return doc;
+      }
     }
 
     // if no ydoc state in db convert json in page.content to Ydoc.

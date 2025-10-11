@@ -30,7 +30,6 @@ export class R2TokenService {
     // Check if we have a valid cached token
     if (this.cachedToken && !this.isTokenExpiringSoon(this.cachedToken)) {
       this.logger.log('[R2 Token] Using cached token');
-      this.logger.log(`[R2 Token] Cached Token: ${this.cachedToken.token}`);
       return this.cachedToken.token;
     }
 
@@ -93,9 +92,8 @@ export class R2TokenService {
 
       const { token, timestamp, expiresIn } = response.data;
 
-      // Log success details
+      // Log success details (without exposing token)
       this.logger.log(`[R2 Token] ✅ API Response Success`);
-      this.logger.log(`[R2 Token] Token: ${token}`);
       this.logger.log(`[R2 Token] Timestamp: ${timestamp}`);
       this.logger.log(`[R2 Token] Expires In: ${expiresIn}`);
       this.logger.log(`[R2 Token] Token Length: ${token.length} characters`);
@@ -106,10 +104,7 @@ export class R2TokenService {
         throw new Error('Invalid token format from API');
       }
 
-      this.logger.log(`[R2 Token] Token Timestamp Part: ${timestampPart}`);
-      this.logger.log(
-        `[R2 Token] Token Signature Part: ${signaturePart.substring(0, 16)}...`,
-      );
+      this.logger.log(`[R2 Token] Token format validated successfully`);
 
       return token;
     } catch (error) {
