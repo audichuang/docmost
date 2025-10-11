@@ -24,6 +24,7 @@ import {
 import { isDeepStrictEqual } from 'node:util';
 import { IPageBacklinkJob } from '../../integrations/queue/constants/queue.interface';
 import { Page } from '@docmost/db/types/entity.types';
+import { ContentTransformerService } from '../../integrations/r2-token/content-transformer.service';
 
 @Injectable()
 export class PersistenceExtension implements Extension {
@@ -35,6 +36,7 @@ export class PersistenceExtension implements Extension {
     @InjectKysely() private readonly db: KyselyDB,
     private eventEmitter: EventEmitter2,
     @InjectQueue(QueueName.GENERAL_QUEUE) private generalQueue: Queue,
+    private readonly contentTransformer: ContentTransformerService,
   ) {}
 
   async onLoadDocument(data: onLoadDocumentPayload) {
@@ -69,8 +71,20 @@ export class PersistenceExtension implements Extension {
     if (page.content) {
       this.logger.debug(`converting json to ydoc: ${pageId}`);
 
+      // Transform content to add R2 image tokens before converting to ydoc
+      let transformedContent = page.content;
+      try {
+        const contentStr = JSON.stringify(page.content);
+        const transformedStr = await this.contentTransformer.transformContent(contentStr);
+        transformedContent = JSON.parse(transformedStr);
+        this.logger.debug(`[Collab] R2 token transformation applied for page: ${pageId}`);
+      } catch (error) {
+        this.logger.warn(`[Collab] Failed to transform R2 tokens: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        // Continue with original content if transformation fails
+      }
+
       const ydoc = TiptapTransformer.toYdoc(
-        page.content,
+        transformedContent,
         'default',
         tiptapExtensions,
       );

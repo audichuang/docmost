@@ -35,6 +35,7 @@ import { PageRepo } from '@docmost/db/repos/page/page.repo';
 import { RecentPageDto } from './dto/recent-page.dto';
 import { DuplicatePageDto } from './dto/duplicate-page.dto';
 import { DeletedPageDto } from './dto/deleted-page.dto';
+import { ContentTransformerService } from '../../integrations/r2-token/content-transformer.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('pages')
@@ -44,6 +45,7 @@ export class PageController {
     private readonly pageRepo: PageRepo,
     private readonly pageHistoryService: PageHistoryService,
     private readonly spaceAbility: SpaceAbilityFactory,
+    private readonly contentTransformer: ContentTransformerService,
   ) {}
 
   @HttpCode(HttpStatus.OK)
@@ -64,6 +66,20 @@ export class PageController {
     const ability = await this.spaceAbility.createForUser(user, page.spaceId);
     if (ability.cannot(SpaceCaslAction.Read, SpaceCaslSubject.Page)) {
       throw new ForbiddenException();
+    }
+
+    // Transform R2 image URLs with token
+    if (page.content) {
+      const contentStr =
+        typeof page.content === 'string'
+          ? page.content
+          : JSON.stringify(page.content);
+      const transformedStr =
+        await this.contentTransformer.transformContent(contentStr);
+      page.content =
+        typeof page.content === 'string'
+          ? transformedStr
+          : JSON.parse(transformedStr);
     }
 
     return page;
@@ -244,6 +260,21 @@ export class PageController {
     if (ability.cannot(SpaceCaslAction.Read, SpaceCaslSubject.Page)) {
       throw new ForbiddenException();
     }
+
+    // Transform R2 image URLs with token
+    if (history.content) {
+      const contentStr =
+        typeof history.content === 'string'
+          ? history.content
+          : JSON.stringify(history.content);
+      const transformedStr =
+        await this.contentTransformer.transformContent(contentStr);
+      history.content =
+        typeof history.content === 'string'
+          ? transformedStr
+          : JSON.parse(transformedStr);
+    }
+
     return history;
   }
 
