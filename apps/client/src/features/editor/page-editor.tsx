@@ -9,6 +9,7 @@ import {
 } from "@hocuspocus/provider";
 import {
   EditorContent,
+  EditorProvider,
   useEditor,
   useEditorState,
 } from "@tiptap/react";
@@ -76,11 +77,9 @@ export default function PageEditor({
   const [, setAsideState] = useAtom(asideStateAtom);
   const [, setActiveCommentId] = useAtom(activeCommentIdAtom);
   const [showCommentPopup, setShowCommentPopup] = useAtom(showCommentPopupAtom);
-  const ydocRef = useRef<Y.Doc | null>(null);
-  if (!ydocRef.current) {
-    ydocRef.current = new Y.Doc();
-  }
-  const ydoc = ydocRef.current;
+
+  // Create new Y.Doc for each page (synchronously during render)
+  const ydoc = useMemo(() => new Y.Doc(), [pageId]);
   const [isLocalSynced, setLocalSynced] = useState(false);
   const [isRemoteSynced, setRemoteSynced] = useState(false);
   const [yjsConnectionStatus, setYjsConnectionStatus] = useAtom(
@@ -99,7 +98,7 @@ export default function PageEditor({
 
   // Providers only created once per pageId
   const providersRef = useRef<{
-    local: IndexeddbPersistence;
+    local: IndexeddbPersistence | null;
     remote: HocuspocusProvider;
   } | null>(null);
   const [providersReady, setProvidersReady] = useState(false);
@@ -109,6 +108,10 @@ export default function PageEditor({
 
   // Track when collaborative provider is ready and synced
   const [collabReady, setCollabReady] = useState(false);
+  const hasConnectedOnceRef = useRef(false);
+  const [connectionError, setConnectionError] = useState(false);
+  const connectionStartTimeRef = useRef<number | null>(null);
+
   useEffect(() => {
     if (
       remoteProvider?.status === WebSocketStatus.Connected &&
@@ -118,6 +121,16 @@ export default function PageEditor({
       setCollabReady(true);
     }
   }, [remoteProvider?.status, isLocalSynced, isRemoteSynced]);
+
+  // Reset all connection states when pageId changes
+  useEffect(() => {
+    hasConnectedOnceRef.current = false;
+    connectionStartTimeRef.current = null;
+    setLocalSynced(false);
+    setRemoteSynced(false);
+    setConnectionError(false);
+    setCollabReady(false);
+  }, [pageId]);
 
   useEffect(() => {
     if (!providersRef.current) {
@@ -165,6 +178,10 @@ export default function PageEditor({
       remote.on("synced", () => setRemoteSynced(true));
       remote.on("disconnect", () => {
         setYjsConnectionStatus(WebSocketStatus.Disconnected);
+        // Reset sync state if never successfully connected
+        if (!hasConnectedOnceRef.current) {
+          setRemoteSynced(false);
+        }
       });
       providersRef.current = { local, remote };
       setProvidersReady(true);
@@ -380,8 +397,72 @@ export default function PageEditor({
     }
   }, [userPageEditMode, editor, editable]);
 
-  // Show loading skeleton until WebSocket is connected and synced
-  if (!isRemoteSynced || remoteProvider?.status !== WebSocketStatus.Connected) {
+  // Track first successful connection
+  useEffect(() => {
+    if (
+      !hasConnectedOnceRef.current &&
+      remoteProvider?.status === WebSocketStatus.Connected &&
+      isRemoteSynced
+    ) {
+      hasConnectedOnceRef.current = true;
+    }
+  }, [remoteProvider?.status, isRemoteSynced]);
+
+  // Connection timeout handling with cumulative time tracking
+  useEffect(() => {
+    // Start tracking time when connecting
+    if (remoteProvider?.status === WebSocketStatus.Connecting && !connectionStartTimeRef.current) {
+      connectionStartTimeRef.current = Date.now();
+    }
+
+    // Connection successful: reset
+    if (remoteProvider?.status === WebSocketStatus.Connected) {
+      connectionStartTimeRef.current = null;
+      setConnectionError(false);
+    }
+
+    // Track cumulative connection time
+    if (connectionStartTimeRef.current && !connectionError) {
+      const interval = setInterval(() => {
+        const elapsed = Date.now() - connectionStartTimeRef.current!;
+
+        // Timeout after 10 seconds
+        if (elapsed > 10000) {
+          console.error("[PageEditor] Collaboration service connection timed out (cumulative)");
+          setConnectionError(true);
+          connectionStartTimeRef.current = null;
+        }
+      }, 500);
+
+      return () => clearInterval(interval);
+    }
+  }, [remoteProvider?.status, connectionError]);
+
+  // Connection error fallback: show read-only static editor
+  if (connectionError) {
+    return (
+      <div>
+        <div style={{
+          padding: '12px 16px',
+          backgroundColor: '#fff4e6',
+          borderBottom: '1px solid #ffd8a8',
+          color: '#e67700',
+          fontSize: '14px',
+        }}>
+          ⚠️ 無法連接協作服務，以唯讀模式顯示內容
+        </div>
+        <EditorProvider
+          editable={false}
+          immediatelyRender={true}
+          extensions={mainExtensions}
+          content={content}
+        />
+      </div>
+    );
+  }
+
+  // Show loading skeleton until first successful connection
+  if (!hasConnectedOnceRef.current) {
     return <EditorSkeleton />;
   }
 

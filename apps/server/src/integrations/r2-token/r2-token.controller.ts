@@ -36,17 +36,21 @@ export class R2TokenController {
       const isExpired = now > expiresAt;
       const timeUntilExpiry = expiresAt - now;
 
-      // Build test URL
-      const testImageUrl = `https://${r2Domain}/docmost/test-image.png?token=${token}`;
-
       this.logger.log('[Test] ✅ Token test successful');
+
+      // Only expose full token in development mode
+      const isDevelopment = process.env.NODE_ENV === 'development';
+      const safeToken = isDevelopment ? token : `${token.substring(0, 20)}...[REDACTED]`;
+
+      // Build test URL (use safe token in production)
+      const testImageUrl = `https://${r2Domain}/docmost/test-image.png?token=${safeToken}`;
 
       return {
         success: true,
-        token,
+        token: safeToken,
         tokenParts: {
           timestamp: timestampPart,
-          signature: signaturePart.substring(0, 32) + '...',
+          signature: isDevelopment ? signaturePart.substring(0, 32) + '...' : '[REDACTED]',
         },
         config: {
           r2Domain,
