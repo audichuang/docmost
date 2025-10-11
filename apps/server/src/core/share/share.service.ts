@@ -23,6 +23,7 @@ import { updateAttachmentAttr } from './share.util';
 import { Page } from '@docmost/db/types/entity.types';
 import { validate as isValidUUID } from 'uuid';
 import { sql } from 'kysely';
+import { ContentTransformerService } from '../../integrations/r2-token/content-transformer.service';
 
 @Injectable()
 export class ShareService {
@@ -33,6 +34,7 @@ export class ShareService {
     private readonly pageRepo: PageRepo,
     @InjectKysely() private readonly db: KyselyDB,
     private readonly tokenService: TokenService,
+    private readonly contentTransformer: ContentTransformerService,
   ) {}
 
   async getShareTree(shareId: string, workspaceId: string) {
@@ -113,6 +115,14 @@ export class ShareService {
     }
 
     page.content = await this.updatePublicAttachments(page);
+
+    // Transform R2 image URLs with token
+    if (page.content) {
+      const contentStr = JSON.stringify(page.content);
+      const transformedContentStr =
+        await this.contentTransformer.transformContent(contentStr);
+      page.content = JSON.parse(transformedContentStr);
+    }
 
     return { page, share };
   }

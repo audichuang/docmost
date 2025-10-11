@@ -321,4 +321,18 @@ export class EnvironmentService {
   getGithubFetchTimeoutMs(): number {
     return parseInt(this.configService.get<string>('GITHUB_FETCH_TIMEOUT_MS', '15000'));
   }
+
+  // R2 Image Token Protection
+  getR2ImageDomain(): string {
+    return this.configService.get<string>('R2_IMAGE_DOMAIN');
+  }
+
+  getR2TokenSecret(): string {
+    // Use APP_SECRET as fallback if R2_TOKEN_SECRET is not set
+    return this.configService.get<string>('R2_TOKEN_SECRET') || this.getAppSecret();
+  }
+
+  getR2TokenValiditySeconds(): number {
+    return parseInt(this.configService.get<string>('R2_TOKEN_VALIDITY_SECONDS', '300'));
+  }
 }
