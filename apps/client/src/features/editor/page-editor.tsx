@@ -9,7 +9,6 @@ import {
 } from "@hocuspocus/provider";
 import {
   EditorContent,
-  EditorProvider,
   useEditor,
   useEditorState,
 } from "@tiptap/react";
@@ -56,6 +55,7 @@ import { FIVE_MINUTES } from "@/lib/constants.ts";
 import { PageEditMode } from "@/features/user/types/user.types.ts";
 import { jwtDecode } from "jwt-decode";
 import { searchSpotlight } from "@/features/search/constants.ts";
+import EditorSkeleton from "@/features/editor/components/editor-skeleton.tsx";
 
 interface PageEditorProps {
   pageId: string;
@@ -380,28 +380,9 @@ export default function PageEditor({
     }
   }, [userPageEditMode, editor, editable]);
 
-  const hasConnectedOnceRef = useRef(false);
-  const [showStatic, setShowStatic] = useState(true);
-
-  useEffect(() => {
-    if (
-      !hasConnectedOnceRef.current &&
-      remoteProvider?.status === WebSocketStatus.Connected
-    ) {
-      hasConnectedOnceRef.current = true;
-      setShowStatic(false);
-    }
-  }, [remoteProvider?.status]);
-
-  if (showStatic) {
-    return (
-      <EditorProvider
-        editable={false}
-        immediatelyRender={true}
-        extensions={mainExtensions}
-        content={content}
-      />
-    );
+  // Show loading skeleton until WebSocket is connected and synced
+  if (!isRemoteSynced || remoteProvider?.status !== WebSocketStatus.Connected) {
+    return <EditorSkeleton />;
   }
 
   return (
