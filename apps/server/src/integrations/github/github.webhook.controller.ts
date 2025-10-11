@@ -1,4 +1,11 @@
-import { Controller, Headers, Post, Req, HttpCode, Logger } from '@nestjs/common';
+import {
+  Controller,
+  Headers,
+  Post,
+  Req,
+  HttpCode,
+  Logger,
+} from '@nestjs/common';
 import * as crypto from 'node:crypto';
 import { GithubSyncService } from './github.sync.service';
 import { EnvironmentService } from '../environment/environment.service';
@@ -25,16 +32,26 @@ export class GithubWebhookController {
     const secret = this.env.getGithubWebhookSecret();
     const raw = req.rawBody ?? JSON.stringify(req.body ?? {});
     if (!secret || !sig256) {
-      Logger.warn('GitHub webhook missing secret or signature', GithubWebhookController.name);
+      Logger.warn(
+        'GitHub webhook missing secret or signature',
+        GithubWebhookController.name,
+      );
       return { ok: false, error: 'invalid-signature' };
     }
-    const exp = 'sha256=' + crypto.createHmac('sha256', secret).update(raw).digest('hex');
+    const exp =
+      'sha256=' + crypto.createHmac('sha256', secret).update(raw).digest('hex');
     if (exp.length !== sig256.length) {
-      Logger.warn('GitHub webhook signature length mismatch', GithubWebhookController.name);
+      Logger.warn(
+        'GitHub webhook signature length mismatch',
+        GithubWebhookController.name,
+      );
       return { ok: false, error: 'invalid-signature' };
     }
     if (!crypto.timingSafeEqual(Buffer.from(exp), Buffer.from(sig256))) {
-      Logger.warn('GitHub webhook signature mismatch', GithubWebhookController.name);
+      Logger.warn(
+        'GitHub webhook signature mismatch',
+        GithubWebhookController.name,
+      );
       return { ok: false, error: 'invalid-signature' };
     }
 

@@ -91,7 +91,11 @@ const groupedData: DataGroup[] = [
       { label: "Groups", icon: IconUsersGroup, path: "/settings/groups" },
       { label: "Spaces", icon: IconSpaces, path: "/settings/spaces" },
       { label: "Public sharing", icon: IconWorld, path: "/settings/sharing" },
-      { label: "Integrations (GitHub)", icon: IconBrandGithub, path: "/settings/integrations/github" },
+      {
+        label: "Integrations (GitHub)",
+        icon: IconBrandGithub,
+        path: "/settings/integrations/github",
+      },
     ],
   },
   {

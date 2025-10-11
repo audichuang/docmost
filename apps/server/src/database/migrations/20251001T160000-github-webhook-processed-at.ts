@@ -13,4 +13,3 @@ export async function down(db: Kysely<any>): Promise<void> {
     .dropColumn('processed_at')
     .execute();
 }
-

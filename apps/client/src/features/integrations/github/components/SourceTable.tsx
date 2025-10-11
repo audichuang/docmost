@@ -1,10 +1,22 @@
-import { useEffect, useState } from 'react';
-import { Table, Button, Group, Text, ScrollArea } from '@mantine/core';
-import { modals } from '@mantine/modals';
-import { listSources, rescanSource, GithubSource, patchSourceActive, deleteSourceApi } from '../services/github-integration-api';
-import SyncStatusTag from './SyncStatusTag';
+import { useEffect, useState } from "react";
+import { Table, Button, Group, Text, ScrollArea } from "@mantine/core";
+import { modals } from "@mantine/modals";
+import {
+  listSources,
+  rescanSource,
+  GithubSource,
+  patchSourceActive,
+  deleteSourceApi,
+} from "../services/github-integration-api";
+import SyncStatusTag from "./SyncStatusTag";
 
-export default function SourceTable({ spaces = [], refreshToken }: { spaces?: { id: string; name: string }[]; refreshToken?: number }) {
+export default function SourceTable({
+  spaces = [],
+  refreshToken,
+}: {
+  spaces?: { id: string; name: string }[];
+  refreshToken?: number;
+}) {
   const [sources, setSources] = useState<GithubSource[]>([]);
   const [loading, setLoading] = useState(false);
   const [rescanMap, setRescanMap] = useState<Record<string, boolean>>({});
@@ -21,7 +33,6 @@ export default function SourceTable({ spaces = [], refreshToken }: { spaces?: { 
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshToken]);
 
   useEffect(() => {
@@ -39,7 +50,12 @@ export default function SourceTable({ spaces = [], refreshToken }: { spaces?: { 
     }
   };
 
-  if (loading) return <Text c="dimmed" size="sm">Loading sources...</Text>;
+  if (loading)
+    return (
+      <Text c="dimmed" size="sm">
+        Loading sources...
+      </Text>
+    );
 
   if (sources.length === 0) {
     return (
@@ -68,24 +84,46 @@ export default function SourceTable({ spaces = [], refreshToken }: { spaces?: { 
         <Table.Tbody>
           {sources.map((s) => (
             <Table.Tr key={s.id}>
-              <Table.Td>{spaces.find((sp) => sp.id === s.spaceId)?.name || s.spaceId}</Table.Td>
               <Table.Td>
-                <Text size="sm" fw={500}>{s.owner}/{s.repo}</Text>
+                {spaces.find((sp) => sp.id === s.spaceId)?.name || s.spaceId}
               </Table.Td>
               <Table.Td>
-                <Text size="sm" c="dimmed">{s.ref}</Text>
+                <Text size="sm" fw={500}>
+                  {s.owner}/{s.repo}
+                </Text>
               </Table.Td>
               <Table.Td>
-                <Text size="sm" c="dimmed">{s.rootDir || '/'}</Text>
+                <Text size="sm" c="dimmed">
+                  {s.ref}
+                </Text>
               </Table.Td>
               <Table.Td>
-                <Text size="sm" c="dimmed">{s.targetPath || '-'}</Text>
+                <Text size="sm" c="dimmed">
+                  {s.rootDir || "/"}
+                </Text>
               </Table.Td>
               <Table.Td>
-                <SyncStatusTag status={s.lastEventOk === true ? 'ok' : s.lastEventOk === false ? 'error' : 'idle'} />
+                <Text size="sm" c="dimmed">
+                  {s.targetPath || "-"}
+                </Text>
               </Table.Td>
               <Table.Td>
-                <Text size="sm">{s.lastEventProcessedAt ? new Date(s.lastEventProcessedAt).toLocaleString() : '-'}</Text>
+                <SyncStatusTag
+                  status={
+                    s.lastEventOk === true
+                      ? "ok"
+                      : s.lastEventOk === false
+                        ? "error"
+                        : "idle"
+                  }
+                />
+              </Table.Td>
+              <Table.Td>
+                <Text size="sm">
+                  {s.lastEventProcessedAt
+                    ? new Date(s.lastEventProcessedAt).toLocaleString()
+                    : "-"}
+                </Text>
               </Table.Td>
               <Table.Td>
                 <Text size="sm">{new Date(s.updatedAt).toLocaleString()}</Text>
@@ -104,9 +142,12 @@ export default function SourceTable({ spaces = [], refreshToken }: { spaces?: { 
                   <Button
                     size="xs"
                     variant="subtle"
-                    onClick={async () => { await patchSourceActive(s.id, !s.active); await load(); }}
+                    onClick={async () => {
+                      await patchSourceActive(s.id, !s.active);
+                      await load();
+                    }}
                   >
-                    {s.active ? 'Disable' : 'Enable'}
+                    {s.active ? "Disable" : "Enable"}
                   </Button>
                   <Button
                     size="xs"
@@ -114,11 +155,15 @@ export default function SourceTable({ spaces = [], refreshToken }: { spaces?: { 
                     variant="light"
                     onClick={() => {
                       modals.openConfirmModal({
-                        title: 'Delete source',
-                        children: 'Are you sure you want to delete this source? This will remove the mapping but not delete pages.',
-                        labels: { confirm: 'Delete', cancel: "Cancel" },
-                        confirmProps: { color: 'red' },
-                        onConfirm: async () => { await deleteSourceApi(s.id); await load(); },
+                        title: "Delete source",
+                        children:
+                          "Are you sure you want to delete this source? This will remove the mapping but not delete pages.",
+                        labels: { confirm: "Delete", cancel: "Cancel" },
+                        confirmProps: { color: "red" },
+                        onConfirm: async () => {
+                          await deleteSourceApi(s.id);
+                          await load();
+                        },
                       });
                     }}
                   >

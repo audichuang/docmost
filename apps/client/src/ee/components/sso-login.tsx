@@ -12,7 +12,8 @@ import { LdapLoginModal } from "@/ee/components/ldap-login-modal.tsx";
 export default function SsoLogin() {
   const { data, isLoading } = useWorkspacePublicDataQuery();
   const [ldapModalOpened, setLdapModalOpened] = useState(false);
-  const [selectedLdapProvider, setSelectedLdapProvider] = useState<IAuthProvider | null>(null);
+  const [selectedLdapProvider, setSelectedLdapProvider] =
+    useState<IAuthProvider | null>(null);
 
   if (!data?.authProviders || data?.authProviders?.length === 0) {
     return null;

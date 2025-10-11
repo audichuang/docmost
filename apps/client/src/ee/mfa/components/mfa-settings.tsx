@@ -9,7 +9,11 @@ import { MfaDisableModal } from "@/ee/mfa";
 import { MfaBackupCodesModal } from "@/ee/mfa";
 import { isCloud } from "@/lib/config.ts";
 import useLicense from "@/ee/hooks/use-license.tsx";
-import { ResponsiveSettingsRow, ResponsiveSettingsContent, ResponsiveSettingsControl } from "@/components/ui/responsive-settings-row";
+import {
+  ResponsiveSettingsRow,
+  ResponsiveSettingsContent,
+  ResponsiveSettingsControl,
+} from "@/components/ui/responsive-settings-row";
 
 export function MfaSettings() {
   const { t } = useTranslation();

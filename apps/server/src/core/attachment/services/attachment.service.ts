@@ -142,7 +142,10 @@ export class AttachmentService {
     const preparedFile: PreparedFile = await prepareFile(filePromise);
     validateFileType(preparedFile.fileExtension, validImageExtensions);
 
-    const processedBuffer = await compressAndResizeIcon(preparedFile.buffer, type);
+    const processedBuffer = await compressAndResizeIcon(
+      preparedFile.buffer,
+      type,
+    );
     preparedFile.buffer = processedBuffer;
     preparedFile.fileSize = processedBuffer.length;
     preparedFile.fileName = uuid4() + preparedFile.fileExtension;

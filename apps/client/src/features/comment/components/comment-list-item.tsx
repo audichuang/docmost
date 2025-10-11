@@ -88,10 +88,10 @@ function CommentListItem({
 
   async function handleResolveComment() {
     if (!isCloudEE) return;
-    
+
     try {
       const isResolved = comment.resolvedAt != null;
-      
+
       await resolveCommentMutation.mutateAsync({
         commentId: comment.id,
         pageId: comment.pageId,
@@ -156,7 +156,8 @@ function CommentListItem({
                 />
               )}
 
-              {(currentUser?.user?.id === comment.creatorId || userSpaceRole === 'admin') && (
+              {(currentUser?.user?.id === comment.creatorId ||
+                userSpaceRole === "admin") && (
                 <CommentMenu
                   onEditComment={handleEditToggle}
                   onDeleteComment={handleDeleteComment}

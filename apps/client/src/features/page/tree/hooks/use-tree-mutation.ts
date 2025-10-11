@@ -87,7 +87,7 @@ export function useTreeMutation<T>(spaceId: string) {
     const pageUrl = buildPageUrl(
       spaceSlug,
       createdPage.slugId,
-      createdPage.title
+      createdPage.title,
     );
     navigate(pageUrl);
     return data;
@@ -157,7 +157,7 @@ export function useTreeMutation<T>(spaceId: string) {
       // check if the previous still has children
       // if no children left, change 'hasChildren' to false, to make the page toggle arrows work properly
       const childrenCount = previousParent.children.filter(
-        (child) => child.id !== draggedNodeId
+        (child) => child.id !== draggedNodeId,
       ).length;
       if (childrenCount === 0) {
         tree.update({
@@ -208,7 +208,7 @@ export function useTreeMutation<T>(spaceId: string) {
 
   const isPageInNode = (
     node: { data: SpaceTreeNode; children?: any[] },
-    pageSlug: string
+    pageSlug: string,
   ): boolean => {
     if (node.data.slugId === pageSlug) {
       return true;

@@ -1,4 +1,10 @@
-import React, { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import clsx from "clsx";
 import classes from "./resizable-wrapper.module.css";
 
@@ -44,7 +50,7 @@ export const ResizableWrapper: React.FC<ResizableWrapperProps> = ({
         const deltaY = e.clientY - resizeParams.initialClientY;
         const newHeight = Math.min(
           Math.max(resizeParams.initialSize + deltaY, minHeight),
-          maxHeight
+          maxHeight,
         );
         setCurrentHeight(newHeight);
         wrapperRef.current.style.height = `${newHeight}px`;
@@ -67,25 +73,37 @@ export const ResizableWrapper: React.FC<ResizableWrapperProps> = ({
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [resizeParams, currentHeight, initialHeight, onResize, minHeight, maxHeight, direction]);
+  }, [
+    resizeParams,
+    currentHeight,
+    initialHeight,
+    onResize,
+    minHeight,
+    maxHeight,
+    direction,
+  ]);
 
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
 
-    setResizeParams({
-      initialSize: currentHeight,
-      initialClientY: e.clientY,
-      initialClientX: e.clientX,
-    });
+      setResizeParams({
+        initialSize: currentHeight,
+        initialClientY: e.clientY,
+        initialClientX: e.clientX,
+      });
 
-    document.body.style.cursor = "ns-resize";
-    document.body.style.userSelect = "none";
-  }, [currentHeight]);
+      document.body.style.cursor = "ns-resize";
+      document.body.style.userSelect = "none";
+    },
+    [currentHeight],
+  );
 
-  const shouldShowHandles = 
-    isEditable && 
-    (showHandles === "always" || (showHandles === "hover" && (isHovered || resizeParams)));
+  const shouldShowHandles =
+    isEditable &&
+    (showHandles === "always" ||
+      (showHandles === "hover" && (isHovered || resizeParams)));
 
   return (
     <div

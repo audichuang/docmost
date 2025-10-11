@@ -38,8 +38,7 @@ export class R2TokenService {
     const token = await this.fetchTokenFromApi();
 
     // Cache token (default 5 minutes)
-    const validitySeconds =
-      this.environmentService.getR2TokenValiditySeconds();
+    const validitySeconds = this.environmentService.getR2TokenValiditySeconds();
     this.cachedToken = {
       token,
       expiresAt: Date.now() + validitySeconds * 1000,

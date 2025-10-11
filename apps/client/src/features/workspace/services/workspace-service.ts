@@ -66,7 +66,9 @@ export async function createInvitation(data: ICreateInvite) {
   return req.data;
 }
 
-export async function acceptInvitation(data: IAcceptInvite): Promise<{ requiresLogin?: boolean; }> {
+export async function acceptInvitation(
+  data: IAcceptInvite,
+): Promise<{ requiresLogin?: boolean }> {
   const req = await api.post("/workspace/invites/accept", data);
   return req.data;
 }
@@ -108,4 +110,3 @@ export async function getAppVersion(): Promise<IVersion> {
   const req = await api.post("/version");
   return req.data;
 }
-

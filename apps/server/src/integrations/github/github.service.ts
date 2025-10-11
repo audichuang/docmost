@@ -1,4 +1,11 @@
-import { Injectable, Logger, NotFoundException, ForbiddenException, BadGatewayException, InternalServerErrorException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  ForbiddenException,
+  BadGatewayException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { EnvironmentService } from '../environment/environment.service';
 import { InjectKysely } from 'nestjs-kysely';
 import { KyselyDB } from '@docmost/db/types/kysely.types';
@@ -29,8 +36,12 @@ export class GithubService {
     try {
       return jwt.sign(payload, privateKey, { algorithm: 'RS256' });
     } catch (err) {
-      this.logger.error('Failed to sign GitHub App JWT. Check GITHUB_APP_PRIVATE_KEY format (PEM newlines).');
-      throw new InternalServerErrorException('invalid_github_private_key_format');
+      this.logger.error(
+        'Failed to sign GitHub App JWT. Check GITHUB_APP_PRIVATE_KEY format (PEM newlines).',
+      );
+      throw new InternalServerErrorException(
+        'invalid_github_private_key_format',
+      );
     }
   }
 
@@ -48,12 +59,19 @@ export class GithubService {
     url: string,
     init?: RequestInit & { timeoutMs?: number; retries?: number },
   ) {
-    const { timeoutMs = this.env.getGithubFetchTimeoutMs(), retries = this.env.getGithubFetchRetries(), ...rest } = init || {};
+    const {
+      timeoutMs = this.env.getGithubFetchTimeoutMs(),
+      retries = this.env.getGithubFetchRetries(),
+      ...rest
+    } = init || {};
     const attempt = async () => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), timeoutMs ?? 15000);
       try {
-        const res = await fetch(url, { ...rest, signal: controller.signal } as RequestInit);
+        const res = await fetch(url, {
+          ...rest,
+          signal: controller.signal,
+        } as RequestInit);
         const text = await res.text();
         let json: any = null;
         try {
@@ -108,7 +126,9 @@ export class GithubService {
       headers: this.headers(appJwt),
     });
     if (!res.ok) {
-      this.logger.error(`Failed to get installation token: ${res.status} ${res.statusText} ${JSON.stringify(json)}`);
+      this.logger.error(
+        `Failed to get installation token: ${res.status} ${res.statusText} ${JSON.stringify(json)}`,
+      );
       throw new BadGatewayException('installation_token_error');
     }
     return json.token as string;
@@ -117,7 +137,13 @@ export class GithubService {
   async listInstallations(workspaceId: string) {
     return this.db
       .selectFrom('githubInstallations')
-      .select([ 'id','installationId','accountLogin','accountType','createdAt' ])
+      .select([
+        'id',
+        'installationId',
+        'accountLogin',
+        'accountType',
+        'createdAt',
+      ])
       .where('workspaceId', '=', workspaceId)
       .execute();
   }
@@ -136,7 +162,7 @@ export class GithubService {
     // Pagination: GitHub defaults to 30 items/page. Fetch all pages to avoid missing repos.
     const perPage = 100;
     let page = 1;
-    let repositories: any[] = [];
+    const repositories: any[] = [];
     let total = 0;
     while (true) {
       const url = `${this.apiBase}/installation/repositories?per_page=${perPage}&page=${page}`;
@@ -182,17 +208,32 @@ export class GithubService {
     return { status: res.status, body: json, etag: newEtag } as const;
   }
 
-  async compare(owner: string, repo: string, before: string, after: string, token: string) {
+  async compare(
+    owner: string,
+    repo: string,
+    before: string,
+    after: string,
+    token: string,
+  ) {
     const url = `${this.apiBase}/repos/${owner}/${repo}/compare/${encodeURIComponent(before)}...${encodeURIComponent(after)}`;
-    const { res, json } = await this.fetchJson(url, { headers: this.headers(token) });
+    const { res, json } = await this.fetchJson(url, {
+      headers: this.headers(token),
+    });
     if (!res.ok) throw new BadGatewayException('compare_error');
     return json;
   }
 
   /** Returns commit SHA for a ref (branch/tag/sha). */
-  async getCommitSha(owner: string, repo: string, ref: string, token: string): Promise<string> {
+  async getCommitSha(
+    owner: string,
+    repo: string,
+    ref: string,
+    token: string,
+  ): Promise<string> {
     const url = `${this.apiBase}/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`;
-    const { res, json } = await this.fetchJson(url, { headers: this.headers(token) });
+    const { res, json } = await this.fetchJson(url, {
+      headers: this.headers(token),
+    });
     if (!res.ok) throw new BadGatewayException('get_commit_error');
     return json?.sha as string;
   }
@@ -235,7 +276,10 @@ export class GithubService {
     const branches = await fetchPaged(`/repos/${owner}/${repo}/branches`);
     const tags = await fetchPaged(`/repos/${owner}/${repo}/tags`);
 
-    const branchItems = branches.map((b: any) => ({ name: b?.name, type: 'branch' }));
+    const branchItems = branches.map((b: any) => ({
+      name: b?.name,
+      type: 'branch',
+    }));
     const tagItems = tags.map((t: any) => ({ name: t?.name, type: 'tag' }));
     return { items: [...branchItems, ...tagItems] };
   }
@@ -315,7 +359,9 @@ export class GithubService {
           .execute();
       }
 
-      this.logger.log(`Synced ${synced.length} installation(s) for workspace ${workspaceId}`);
+      this.logger.log(
+        `Synced ${synced.length} installation(s) for workspace ${workspaceId}`,
+      );
       return { synced: synced.length };
     } catch (err) {
       this.logger.error('Failed to sync installations from GitHub', err);

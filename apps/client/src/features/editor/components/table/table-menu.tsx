@@ -17,9 +17,11 @@ import {
   IconColumnRemove,
   IconRowInsertBottom,
   IconRowInsertTop,
-  IconRowRemove, IconTableColumn, IconTableRow,
+  IconRowRemove,
+  IconTableColumn,
+  IconTableRow,
   IconTrashX,
-} from '@tabler/icons-react';
+} from "@tabler/icons-react";
 import { isCellSelection } from "@docmost/editor-ext";
 import { useTranslation } from "react-i18next";
 
@@ -121,8 +123,7 @@ export const TableMenu = React.memo(
         shouldShow={shouldShow}
       >
         <ActionIcon.Group>
-          <Tooltip position="top" label={t("Add left column")}
-          >
+          <Tooltip position="top" label={t("Add left column")}>
             <ActionIcon
               onClick={addColumnLeft}
               variant="default"
@@ -188,8 +189,7 @@ export const TableMenu = React.memo(
             </ActionIcon>
           </Tooltip>
 
-          <Tooltip position="top" label={t("Toggle header row")}
-          >
+          <Tooltip position="top" label={t("Toggle header row")}>
             <ActionIcon
               onClick={toggleHeaderRow}
               variant="default"
@@ -200,8 +200,7 @@ export const TableMenu = React.memo(
             </ActionIcon>
           </Tooltip>
 
-          <Tooltip position="top" label={t("Toggle header column")}
-          >
+          <Tooltip position="top" label={t("Toggle header column")}>
             <ActionIcon
               onClick={toggleHeaderColumn}
               variant="default"

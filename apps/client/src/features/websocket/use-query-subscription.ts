@@ -105,15 +105,15 @@ export const useQuerySubscription = () => {
           if (currentComments && currentComments.items) {
             const updatedComments = currentComments.items.map((comment) =>
               comment.id === data.commentId
-                ? { 
-                    ...comment, 
-                    resolvedAt: data.resolvedAt, 
-                    resolvedById: data.resolvedById, 
-                    resolvedBy: data.resolvedBy 
+                ? {
+                    ...comment,
+                    resolvedAt: data.resolvedAt,
+                    resolvedById: data.resolvedById,
+                    resolvedBy: data.resolvedBy,
                   }
                 : comment,
             );
-            
+
             queryClient.setQueryData(RQ_KEY(data.pageId), {
               ...currentComments,
               items: updatedComments,

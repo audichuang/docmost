@@ -68,7 +68,8 @@ export class PersistenceExtension implements Extension {
       try {
         const tiptapJson = TiptapTransformer.fromYdoc(doc, 'default');
         const jsonStr = JSON.stringify(tiptapJson);
-        const transformedStr = await this.contentTransformer.transformContent(jsonStr);
+        const transformedStr =
+          await this.contentTransformer.transformContent(jsonStr);
         const transformedJson = JSON.parse(transformedStr);
 
         const transformedDoc = TiptapTransformer.toYdoc(
@@ -77,10 +78,14 @@ export class PersistenceExtension implements Extension {
           tiptapExtensions,
         );
 
-        this.logger.debug(`[Collab] R2 token transformation applied to ydoc for page: ${pageId}`);
+        this.logger.debug(
+          `[Collab] R2 token transformation applied to ydoc for page: ${pageId}`,
+        );
         return transformedDoc;
       } catch (error) {
-        this.logger.warn(`[Collab] Failed to transform R2 tokens in ydoc: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        this.logger.warn(
+          `[Collab] Failed to transform R2 tokens in ydoc: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
         return doc;
       }
     }
@@ -93,11 +98,16 @@ export class PersistenceExtension implements Extension {
       let transformedContent = page.content;
       try {
         const contentStr = JSON.stringify(page.content);
-        const transformedStr = await this.contentTransformer.transformContent(contentStr);
+        const transformedStr =
+          await this.contentTransformer.transformContent(contentStr);
         transformedContent = JSON.parse(transformedStr);
-        this.logger.debug(`[Collab] R2 token transformation applied for page: ${pageId}`);
+        this.logger.debug(
+          `[Collab] R2 token transformation applied for page: ${pageId}`,
+        );
       } catch (error) {
-        this.logger.warn(`[Collab] Failed to transform R2 tokens: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        this.logger.warn(
+          `[Collab] Failed to transform R2 tokens: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
         // Continue with original content if transformation fails
       }
 
@@ -148,7 +158,9 @@ export class PersistenceExtension implements Extension {
 
         // Prevent editing GitHub-managed (locked) pages
         if (page.isLocked) {
-          this.logger.debug(`Page ${pageId} is locked (GitHub-managed), skipping update`);
+          this.logger.debug(
+            `Page ${pageId} is locked (GitHub-managed), skipping update`,
+          );
           page = null;
           return;
         }

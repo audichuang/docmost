@@ -36,7 +36,7 @@ const EmojiList = ({
         incrementEmojiUsage(item.id);
       }
     },
-    [command, items]
+    [command, items],
   );
 
   useEffect(() => {
@@ -53,14 +53,16 @@ const EmojiList = ({
 
         if (e.key === "ArrowRight") {
           setSelectedIndex(
-            selectedIndex + 1 < items.length ? selectedIndex + 1 : selectedIndex
+            selectedIndex + 1 < items.length
+              ? selectedIndex + 1
+              : selectedIndex,
           );
           return true;
         }
 
         if (e.key === "ArrowLeft") {
           setSelectedIndex(
-            selectedIndex - 1 >= 0 ? selectedIndex - 1 : selectedIndex
+            selectedIndex - 1 >= 0 ? selectedIndex - 1 : selectedIndex,
           );
           return true;
         }
@@ -69,7 +71,7 @@ const EmojiList = ({
           setSelectedIndex(
             selectedIndex - GRID_COLUMNS >= 0
               ? selectedIndex - GRID_COLUMNS
-              : selectedIndex
+              : selectedIndex,
           );
           return true;
         }
@@ -78,7 +80,7 @@ const EmojiList = ({
           setSelectedIndex(
             selectedIndex + GRID_COLUMNS < items.length
               ? selectedIndex + GRID_COLUMNS
-              : selectedIndex
+              : selectedIndex,
           );
           return true;
         }

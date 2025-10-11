@@ -49,7 +49,7 @@ export const MarkdownClipboard = Extension.create({
             });
 
             tr.replaceRange(from, to, contentNodes);
-            tr.setMeta('paste', true)
+            tr.setMeta("paste", true);
             view.dispatch(tr);
             return true;
           },

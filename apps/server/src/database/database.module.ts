@@ -75,7 +75,7 @@ types.setTypeParser(types.builtins.INT8, (val) => Number(val));
     AttachmentRepo,
     UserTokenRepo,
     BacklinkRepo,
-    ShareRepo
+    ShareRepo,
   ],
   exports: [
     WorkspaceRepo,
@@ -90,7 +90,7 @@ types.setTypeParser(types.builtins.INT8, (val) => Number(val));
     AttachmentRepo,
     UserTokenRepo,
     BacklinkRepo,
-    ShareRepo
+    ShareRepo,
   ],
 })
 export class DatabaseModule

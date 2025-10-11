@@ -63,7 +63,7 @@ export function MfaDisableModal({
 
   const handleSubmit = async (values: { confirmPassword?: string }) => {
     // Only send confirmPassword if it's required (non-SSO users)
-    const payload = requiresPassword 
+    const payload = requiresPassword
       ? { confirmPassword: values.confirmPassword }
       : {};
     await disableMutation.mutateAsync(payload);

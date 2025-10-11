@@ -4,7 +4,9 @@ export async function up(db: Kysely<any>): Promise<void> {
   // 1) github_installations
   await db.schema
     .createTable('github_installations')
-    .addColumn('id', 'uuid', (col) => col.primaryKey().defaultTo(sql`gen_uuid_v7()`))
+    .addColumn('id', 'uuid', (col) =>
+      col.primaryKey().defaultTo(sql`gen_uuid_v7()`),
+    )
     .addColumn('workspace_id', 'uuid', (col) =>
       col.references('workspaces.id').onDelete('cascade').notNull(),
     )
@@ -12,8 +14,12 @@ export async function up(db: Kysely<any>): Promise<void> {
     .addColumn('installation_id', 'varchar', (col) => col.notNull())
     .addColumn('account_login', 'varchar', (col) => col.notNull())
     .addColumn('account_type', 'varchar', (col) => col.notNull()) // 'User' | 'Organization'
-    .addColumn('created_at', 'timestamptz', (col) => col.notNull().defaultTo(sql`now()`))
-    .addColumn('updated_at', 'timestamptz', (col) => col.notNull().defaultTo(sql`now()`))
+    .addColumn('created_at', 'timestamptz', (col) =>
+      col.notNull().defaultTo(sql`now()`),
+    )
+    .addColumn('updated_at', 'timestamptz', (col) =>
+      col.notNull().defaultTo(sql`now()`),
+    )
     .addUniqueConstraint('github_installations_ws_installation_id_unique', [
       'workspace_id',
       'installation_id',
@@ -27,7 +33,9 @@ export async function up(db: Kysely<any>): Promise<void> {
   // 2) github_sources
   await db.schema
     .createTable('github_sources')
-    .addColumn('id', 'uuid', (col) => col.primaryKey().defaultTo(sql`gen_uuid_v7()`))
+    .addColumn('id', 'uuid', (col) =>
+      col.primaryKey().defaultTo(sql`gen_uuid_v7()`),
+    )
     .addColumn('workspace_id', 'uuid', (col) =>
       col.references('workspaces.id').onDelete('cascade').notNull(),
     )
@@ -47,8 +55,12 @@ export async function up(db: Kysely<any>): Promise<void> {
     .addColumn('mode', 'varchar', (col) => col.notNull().defaultTo('readonly'))
     .addColumn('active', 'boolean', (col) => col.notNull().defaultTo(true))
     .addColumn('last_full_scan_sha', 'varchar')
-    .addColumn('created_at', 'timestamptz', (col) => col.notNull().defaultTo(sql`now()`))
-    .addColumn('updated_at', 'timestamptz', (col) => col.notNull().defaultTo(sql`now()`))
+    .addColumn('created_at', 'timestamptz', (col) =>
+      col.notNull().defaultTo(sql`now()`),
+    )
+    .addColumn('updated_at', 'timestamptz', (col) =>
+      col.notNull().defaultTo(sql`now()`),
+    )
     .addUniqueConstraint('github_sources_unique_source', [
       'space_id',
       'owner',
@@ -72,7 +84,9 @@ export async function up(db: Kysely<any>): Promise<void> {
   // 3) github_files
   await db.schema
     .createTable('github_files')
-    .addColumn('id', 'uuid', (col) => col.primaryKey().defaultTo(sql`gen_uuid_v7()`))
+    .addColumn('id', 'uuid', (col) =>
+      col.primaryKey().defaultTo(sql`gen_uuid_v7()`),
+    )
     .addColumn('source_id', 'uuid', (col) =>
       col.references('github_sources.id').onDelete('cascade').notNull(),
     )
@@ -86,9 +100,16 @@ export async function up(db: Kysely<any>): Promise<void> {
     .addColumn('title', 'text')
     .addColumn('status', 'varchar', (col) => col.notNull().defaultTo('synced')) // 'synced' | 'deleted' | 'error'
     .addColumn('renamed_from_path', 'text')
-    .addColumn('created_at', 'timestamptz', (col) => col.notNull().defaultTo(sql`now()`))
-    .addColumn('updated_at', 'timestamptz', (col) => col.notNull().defaultTo(sql`now()`))
-    .addUniqueConstraint('github_files_source_path_unique', ['source_id', 'path'])
+    .addColumn('created_at', 'timestamptz', (col) =>
+      col.notNull().defaultTo(sql`now()`),
+    )
+    .addColumn('updated_at', 'timestamptz', (col) =>
+      col.notNull().defaultTo(sql`now()`),
+    )
+    .addUniqueConstraint('github_files_source_path_unique', [
+      'source_id',
+      'path',
+    ])
     .addCheckConstraint(
       'github_files_content_type_check',
       sql`("content_type" in ('markdown','asset'))`,
@@ -113,7 +134,9 @@ export async function up(db: Kysely<any>): Promise<void> {
   // 4) github_webhook_events
   await db.schema
     .createTable('github_webhook_events')
-    .addColumn('id', 'uuid', (col) => col.primaryKey().defaultTo(sql`gen_uuid_v7()`))
+    .addColumn('id', 'uuid', (col) =>
+      col.primaryKey().defaultTo(sql`gen_uuid_v7()`),
+    )
     .addColumn('github_installation_id', 'uuid', (col) =>
       col.references('github_installations.id').onDelete('set null'),
     )
@@ -126,8 +149,12 @@ export async function up(db: Kysely<any>): Promise<void> {
     .addColumn('processed', 'boolean', (col) => col.notNull().defaultTo(false))
     .addColumn('ok', 'boolean')
     .addColumn('error', 'text')
-    .addColumn('created_at', 'timestamptz', (col) => col.notNull().defaultTo(sql`now()`))
-    .addUniqueConstraint('github_webhook_events_delivery_unique', ['delivery_id'])
+    .addColumn('created_at', 'timestamptz', (col) =>
+      col.notNull().defaultTo(sql`now()`),
+    )
+    .addUniqueConstraint('github_webhook_events_delivery_unique', [
+      'delivery_id',
+    ])
     .execute();
 
   await db.schema
@@ -138,15 +165,30 @@ export async function up(db: Kysely<any>): Promise<void> {
 }
 
 export async function down(db: Kysely<any>): Promise<void> {
-  await db.schema.dropIndex('idx_github_webhook_events_created_at').on('github_webhook_events').execute();
+  await db.schema
+    .dropIndex('idx_github_webhook_events_created_at')
+    .on('github_webhook_events')
+    .execute();
   await db.schema.dropTable('github_webhook_events').execute();
 
-  await db.schema.dropIndex('idx_github_files_source_updated_at').on('github_files').execute();
-  await db.schema.dropIndex('idx_github_files_source_sha').on('github_files').execute();
+  await db.schema
+    .dropIndex('idx_github_files_source_updated_at')
+    .on('github_files')
+    .execute();
+  await db.schema
+    .dropIndex('idx_github_files_source_sha')
+    .on('github_files')
+    .execute();
   await db.schema.dropTable('github_files').execute();
 
-  await db.schema.dropIndex('idx_github_sources_workspace_updated_at').on('github_sources').execute();
-  await db.schema.dropIndex('idx_github_sources_github_installation').on('github_sources').execute();
+  await db.schema
+    .dropIndex('idx_github_sources_workspace_updated_at')
+    .on('github_sources')
+    .execute();
+  await db.schema
+    .dropIndex('idx_github_sources_github_installation')
+    .on('github_sources')
+    .execute();
   await db.schema.dropTable('github_sources').execute();
 
   await db.schema.dropTable('github_installations').execute();

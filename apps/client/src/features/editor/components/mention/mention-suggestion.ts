@@ -18,7 +18,7 @@ const mentionRenderItems = () => {
       query: string;
     }) => {
       // query must not start with a whitespace
-      if (props.query.charAt(0) === ' '){
+      if (props.query.charAt(0) === " ") {
         return;
       }
 
@@ -54,7 +54,7 @@ const mentionRenderItems = () => {
       query: string;
     }) => {
       // query must not start with a whitespace
-      if (props.query.charAt(0) === ' '){
+      if (props.query.charAt(0) === " ") {
         component?.destroy();
         return;
       }

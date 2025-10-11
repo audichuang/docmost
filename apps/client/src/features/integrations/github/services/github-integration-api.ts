@@ -1,4 +1,4 @@
-import api from '@/lib/api-client';
+import api from "@/lib/api-client";
 
 export type GithubInstallation = {
   id: string;
@@ -24,17 +24,17 @@ export type GithubSource = {
 };
 
 export async function listInstallations(): Promise<GithubInstallation[]> {
-  const req = await api.get('/integrations/github/installations');
+  const req = await api.get("/integrations/github/installations");
   return req.data;
 }
 
 export async function syncInstallations(): Promise<{ synced: number }> {
-  const req = await api.post('/integrations/github/installations/sync');
+  const req = await api.post("/integrations/github/installations/sync");
   return req.data;
 }
 
 export async function getAuthUrl(): Promise<{ url: string }> {
-  const req = await api.get('/integrations/github/installations/auth-url');
+  const req = await api.get("/integrations/github/installations/auth-url");
   return req.data;
 }
 
@@ -43,13 +43,17 @@ export async function deleteInstallation(id: string): Promise<{ ok: boolean }> {
   return req.data;
 }
 
-export async function listRepos(githubInstallationId: string): Promise<{ total_count: number; repositories: any[] }> {
-  const req = await api.get('/integrations/github/repos', { params: { githubInstallationId } });
+export async function listRepos(
+  githubInstallationId: string,
+): Promise<{ total_count: number; repositories: any[] }> {
+  const req = await api.get("/integrations/github/repos", {
+    params: { githubInstallationId },
+  });
   return req.data;
 }
 
 export async function listSources(): Promise<GithubSource[]> {
-  const req = await api.get('/integrations/github/sources');
+  const req = await api.get("/integrations/github/sources");
   return req.data;
 }
 
@@ -64,13 +68,17 @@ export async function createSource(payload: {
   rootPageId?: string;
   active?: boolean;
 }): Promise<{ jobId: string }> {
-  const req = await api.post('/integrations/github/sources', payload);
+  const req = await api.post("/integrations/github/sources", payload);
   return req.data;
 }
 
 export async function rescanSource(id: string, opts?: { force?: boolean }) {
-  const params = opts?.force ? { force: '1' } : undefined;
-  const req = await api.post(`/integrations/github/sources/${id}/rescan`, undefined, { params });
+  const params = opts?.force ? { force: "1" } : undefined;
+  const req = await api.post(
+    `/integrations/github/sources/${id}/rescan`,
+    undefined,
+    { params },
+  );
   return req.data;
 }
 
@@ -84,7 +92,11 @@ export async function deleteSourceApi(id: string) {
   return req.data;
 }
 
-export async function listRefs(params: { githubInstallationId: string; owner: string; repo: string }): Promise<{ items: { name: string; type: 'branch' | 'tag' }[] }> {
-  const req = await api.get('/integrations/github/refs', { params });
+export async function listRefs(params: {
+  githubInstallationId: string;
+  owner: string;
+  repo: string;
+}): Promise<{ items: { name: string; type: "branch" | "tag" }[] }> {
+  const req = await api.get("/integrations/github/refs", { params });
   return req.data;
 }

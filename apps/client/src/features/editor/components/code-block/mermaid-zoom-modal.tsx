@@ -1,8 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Modal, ActionIcon, Group, Tooltip, rem, useComputedColorScheme } from "@mantine/core";
-import { IconZoomIn, IconZoomOut, IconRefresh, IconMaximize } from "@tabler/icons-react";
+import {
+  Modal,
+  ActionIcon,
+  Group,
+  Tooltip,
+  rem,
+  useComputedColorScheme,
+} from "@mantine/core";
+import {
+  IconZoomIn,
+  IconZoomOut,
+  IconRefresh,
+  IconMaximize,
+} from "@tabler/icons-react";
 import mermaid from "mermaid";
-import { TransformWrapper, TransformComponent, ReactZoomPanPinchRef } from "react-zoom-pan-pinch";
+import {
+  TransformWrapper,
+  TransformComponent,
+  ReactZoomPanPinchRef,
+} from "react-zoom-pan-pinch";
 import { useTranslation } from "react-i18next";
 
 interface MermaidZoomModalProps {
@@ -11,7 +27,11 @@ interface MermaidZoomModalProps {
   code: string;
 }
 
-export function MermaidZoomModal({ opened, onClose, code }: MermaidZoomModalProps) {
+export function MermaidZoomModal({
+  opened,
+  onClose,
+  code,
+}: MermaidZoomModalProps) {
   const { t } = useTranslation();
   const computedColorScheme = useComputedColorScheme();
   const [svg, setSvg] = useState<string>("");
@@ -33,7 +53,10 @@ export function MermaidZoomModal({ opened, onClose, code }: MermaidZoomModalProp
     let cancelled = false;
     async function render() {
       try {
-        const { svg } = await mermaid.render(`modal-mermaid-${Date.now()}`, code);
+        const { svg } = await mermaid.render(
+          `modal-mermaid-${Date.now()}`,
+          code,
+        );
         if (!cancelled) {
           setSvg(svg);
           setIsPositioned(false); // Reset positioning state
@@ -73,7 +96,7 @@ export function MermaidZoomModal({ opened, onClose, code }: MermaidZoomModalProp
     let svgWidth = 0;
     let svgHeight = 0;
 
-    const viewBox = svgEl.getAttribute('viewBox');
+    const viewBox = svgEl.getAttribute("viewBox");
     if (viewBox) {
       const parts = viewBox.trim().split(/\s+/);
       if (parts.length === 4) {
@@ -105,7 +128,7 @@ export function MermaidZoomModal({ opened, onClose, code }: MermaidZoomModalProp
 
     // Wait for DOM to be ready, then fit to screen
     const timeoutId = setTimeout(() => {
-      const svgEl = contentRef.current?.querySelector?.('svg');
+      const svgEl = contentRef.current?.querySelector?.("svg");
       if (!svgEl || !transformRef.current) {
         setIsPositioned(true);
         return;
@@ -126,7 +149,12 @@ export function MermaidZoomModal({ opened, onClose, code }: MermaidZoomModalProp
       const containerWidth = wrapper.clientWidth;
       const containerHeight = wrapper.clientHeight;
 
-      if (svgWidth > 0 && svgHeight > 0 && containerWidth > 0 && containerHeight > 0) {
+      if (
+        svgWidth > 0 &&
+        svgHeight > 0 &&
+        containerWidth > 0 &&
+        containerHeight > 0
+      ) {
         const padding = 40;
         const scaleX = (containerWidth - padding * 2) / svgWidth;
         const scaleY = (containerHeight - padding * 2) / svgHeight;
@@ -153,8 +181,8 @@ export function MermaidZoomModal({ opened, onClose, code }: MermaidZoomModalProp
       padding={0}
       withCloseButton
       styles={{
-        body: { height: '100%', padding: 0 },
-        content: { height: '100vh', display: 'flex', flexDirection: 'column' }
+        body: { height: "100%", padding: 0 },
+        content: { height: "100vh", display: "flex", flexDirection: "column" },
       }}
       title={null}
     >
@@ -170,21 +198,30 @@ export function MermaidZoomModal({ opened, onClose, code }: MermaidZoomModalProp
         doubleClick={{ disabled: true }}
       >
         {({ zoomIn, zoomOut, resetTransform }) => (
-          <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              height: "100%",
+              width: "100%",
+            }}
+          >
             <Group
               justify="center"
               gap="md"
               p="md"
               style={{
                 flexShrink: 0,
-                background: computedColorScheme === 'dark'
-                  ? 'rgba(26, 27, 30, 0.95)'
-                  : 'rgba(255, 255, 255, 0.95)',
-                backdropFilter: 'blur(10px)',
-                borderBottom: computedColorScheme === 'dark'
-                  ? '1px solid rgba(255, 255, 255, 0.1)'
-                  : '1px solid rgba(0, 0, 0, 0.1)',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
+                background:
+                  computedColorScheme === "dark"
+                    ? "rgba(26, 27, 30, 0.95)"
+                    : "rgba(255, 255, 255, 0.95)",
+                backdropFilter: "blur(10px)",
+                borderBottom:
+                  computedColorScheme === "dark"
+                    ? "1px solid rgba(255, 255, 255, 0.1)"
+                    : "1px solid rgba(0, 0, 0, 0.1)",
+                boxShadow: "0 2px 8px rgba(0, 0, 0, 0.1)",
               }}
             >
               <Tooltip label={t("Fit to screen")} withArrow position="bottom">
@@ -229,20 +266,28 @@ export function MermaidZoomModal({ opened, onClose, code }: MermaidZoomModalProp
                 </ActionIcon>
               </Tooltip>
             </Group>
-            <div style={{ flex: 1, overflow: 'hidden', position: 'relative', width: '100%', height: '100%' }}>
+            <div
+              style={{
+                flex: 1,
+                overflow: "hidden",
+                position: "relative",
+                width: "100%",
+                height: "100%",
+              }}
+            >
               <TransformComponent
                 wrapperStyle={{
-                  width: '100%',
-                  height: '100%'
+                  width: "100%",
+                  height: "100%",
                 }}
               >
                 <div
                   ref={contentRef}
                   dangerouslySetInnerHTML={svgContent}
                   style={{
-                    display: 'inline-block',
+                    display: "inline-block",
                     opacity: isPositioned ? 1 : 0,
-                    transition: 'opacity 250ms ease-in'
+                    transition: "opacity 250ms ease-in",
                   }}
                 />
               </TransformComponent>
