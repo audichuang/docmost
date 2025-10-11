@@ -374,7 +374,7 @@ export class AttachmentController {
       });
       return res.send(fileStream);
     } catch (err) {
-     // this.logger.error(err);
+      // this.logger.error(err);
       throw new NotFoundException('File not found');
     }
   }

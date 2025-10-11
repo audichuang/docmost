@@ -1,15 +1,34 @@
-import { useEffect, useState } from 'react';
-import { Modal, Stack, Text, Progress, Group, ThemeIcon, Alert, Loader, Box, Center, RingProgress } from '@mantine/core';
+import { useEffect, useState } from "react";
+import {
+  Modal,
+  Stack,
+  Text,
+  Progress,
+  Group,
+  ThemeIcon,
+  Alert,
+  Loader,
+  Box,
+  Center,
+  RingProgress,
+} from "@mantine/core";
 import {
   IconCheck,
   IconAlertCircle,
   IconBrandGithub,
   IconDownload,
   IconCloudUpload,
-} from '@tabler/icons-react';
+} from "@tabler/icons-react";
 
 type ProgressEvent = {
-  type: 'init' | 'fetching_tree' | 'tree_fetched' | 'syncing_files' | 'file_synced' | 'completed' | 'error';
+  type:
+    | "init"
+    | "fetching_tree"
+    | "tree_fetched"
+    | "syncing_files"
+    | "file_synced"
+    | "completed"
+    | "error";
   message: string;
   progress?: {
     current: number;
@@ -18,7 +37,7 @@ type ProgressEvent = {
   data?: any;
 };
 
-type StepStatus = 'pending' | 'loading' | 'completed' | 'error';
+type StepStatus = "pending" | "loading" | "completed" | "error";
 
 type ProgressStep = {
   label: string;
@@ -36,62 +55,77 @@ export default function SyncProgressModal({
   jobId: string | null;
 }) {
   const [steps, setSteps] = useState<ProgressStep[]>([
-    { label: 'Initializing sync', status: 'pending', icon: <IconBrandGithub size={18} /> },
-    { label: 'Fetching repository tree', status: 'pending', icon: <IconDownload size={18} /> },
-    { label: 'Syncing files', status: 'pending', icon: <IconCloudUpload size={18} /> },
+    {
+      label: "Initializing sync",
+      status: "pending",
+      icon: <IconBrandGithub size={18} />,
+    },
+    {
+      label: "Fetching repository tree",
+      status: "pending",
+      icon: <IconDownload size={18} />,
+    },
+    {
+      label: "Syncing files",
+      status: "pending",
+      icon: <IconCloudUpload size={18} />,
+    },
   ]);
-  const [currentMessage, setCurrentMessage] = useState('Waiting to start...');
+  const [currentMessage, setCurrentMessage] = useState("Waiting to start...");
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
   const [completed, setCompleted] = useState(false);
 
   useEffect(() => {
     if (!jobId || !opened) {
-      console.log('[SyncProgressModal] Not opening SSE:', { jobId, opened });
+      console.log("[SyncProgressModal] Not opening SSE:", { jobId, opened });
       return;
     }
 
-    console.log('[SyncProgressModal] Opening SSE connection for jobId:', jobId);
+    console.log("[SyncProgressModal] Opening SSE connection for jobId:", jobId);
 
-    const eventSource = new EventSource(`/api/integrations/github/sources/progress/${jobId}`, {
-      withCredentials: true,
-    });
+    const eventSource = new EventSource(
+      `/api/integrations/github/sources/progress/${jobId}`,
+      {
+        withCredentials: true,
+      },
+    );
 
     eventSource.onmessage = (event) => {
       try {
-        console.log('[SSE] Raw event:', event.data);
+        console.log("[SSE] Raw event:", event.data);
 
         // NestJS SSE format: data field contains our event object
         const parsed = JSON.parse(event.data);
-        console.log('[SSE] Parsed:', parsed);
+        console.log("[SSE] Parsed:", parsed);
 
         // Extract the actual data (NestJS wraps it in { data: ... })
         const data: ProgressEvent = parsed.data || parsed;
-        console.log('[SSE] Event data:', data);
+        console.log("[SSE] Event data:", data);
 
         setCurrentMessage(data.message);
 
         switch (data.type) {
-          case 'init':
+          case "init":
             setSteps((prev) => [
-              { ...prev[0], status: 'loading' },
+              { ...prev[0], status: "loading" },
               prev[1],
               prev[2],
             ]);
             break;
 
-          case 'fetching_tree':
+          case "fetching_tree":
             setSteps((prev) => [
-              { ...prev[0], status: 'completed' },
-              { ...prev[1], status: 'loading' },
+              { ...prev[0], status: "completed" },
+              { ...prev[1], status: "loading" },
               prev[2],
             ]);
             break;
 
-          case 'tree_fetched':
+          case "tree_fetched":
             setSteps((prev) => [
               prev[0],
-              { ...prev[1], status: 'completed' },
+              { ...prev[1], status: "completed" },
               prev[2],
             ]);
             if (data.data?.totalFiles !== undefined) {
@@ -99,23 +133,23 @@ export default function SyncProgressModal({
             }
             break;
 
-          case 'syncing_files':
-          case 'file_synced':
+          case "syncing_files":
+          case "file_synced":
             setSteps((prev) => [
-              { ...prev[0], status: 'completed' },
-              { ...prev[1], status: 'completed' },
-              { ...prev[2], status: 'loading' },
+              { ...prev[0], status: "completed" },
+              { ...prev[1], status: "completed" },
+              { ...prev[2], status: "loading" },
             ]);
             if (data.progress) {
               setProgress(data.progress);
             }
             break;
 
-          case 'completed':
+          case "completed":
             setSteps((prev) => [
-              { ...prev[0], status: 'completed' },
-              { ...prev[1], status: 'completed' },
-              { ...prev[2], status: 'completed' },
+              { ...prev[0], status: "completed" },
+              { ...prev[1], status: "completed" },
+              { ...prev[2], status: "completed" },
             ]);
             setCompleted(true);
             // Auto close after 2 seconds
@@ -125,23 +159,23 @@ export default function SyncProgressModal({
             }, 2000);
             break;
 
-          case 'error':
+          case "error":
             setSteps((prev) =>
               prev.map((step) =>
-                step.status === 'loading' ? { ...step, status: 'error' } : step
-              )
+                step.status === "loading" ? { ...step, status: "error" } : step,
+              ),
             );
             setError(data.message);
             eventSource.close();
             break;
         }
       } catch (err) {
-        console.error('Failed to parse SSE event:', err);
+        console.error("Failed to parse SSE event:", err);
       }
     };
 
     eventSource.onerror = () => {
-      console.error('SSE connection error');
+      console.error("SSE connection error");
       eventSource.close();
     };
 
@@ -152,17 +186,28 @@ export default function SyncProgressModal({
 
   const getStepStatusColor = (status: StepStatus) => {
     switch (status) {
-      case 'completed': return 'teal';
-      case 'loading': return 'blue';
-      case 'error': return 'red';
-      default: return 'gray';
+      case "completed":
+        return "teal";
+      case "loading":
+        return "blue";
+      case "error":
+        return "red";
+      default:
+        return "gray";
     }
   };
 
-  const progressPercentage = progress.total > 0 ? (progress.current / progress.total) * 100 : 0;
-  const currentStepIndex = steps.findIndex(s => s.status === 'loading');
+  const progressPercentage =
+    progress.total > 0 ? (progress.current / progress.total) * 100 : 0;
+  const currentStepIndex = steps.findIndex((s) => s.status === "loading");
 
-  console.log('[SyncProgressModal] Render:', { opened, jobId, progress, completed, error });
+  console.log("[SyncProgressModal] Render:", {
+    opened,
+    jobId,
+    progress,
+    completed,
+    error,
+  });
 
   return (
     <Modal.Root
@@ -198,13 +243,18 @@ export default function SyncProgressModal({
                     sections={[
                       {
                         value: completed ? 100 : progressPercentage,
-                        color: completed ? 'teal' : 'blue',
+                        color: completed ? "teal" : "blue",
                       },
                     ]}
                     label={
                       <Center>
                         {completed ? (
-                          <ThemeIcon color="teal" size={50} radius="xl" variant="light">
+                          <ThemeIcon
+                            color="teal"
+                            size={50}
+                            radius="xl"
+                            variant="light"
+                          >
                             <IconCheck size={28} />
                           </ThemeIcon>
                         ) : (
@@ -213,7 +263,7 @@ export default function SyncProgressModal({
                             <Text size="xs" c="dimmed" fw={500}>
                               {progress.total > 0
                                 ? `${progress.current}/${progress.total}`
-                                : 'Starting...'}
+                                : "Starting..."}
                             </Text>
                           </Stack>
                         )}
@@ -226,7 +276,12 @@ export default function SyncProgressModal({
 
             {/* Error Alert */}
             {error && (
-              <Alert icon={<IconAlertCircle size={18} />} title="Sync Failed" color="red" variant="light">
+              <Alert
+                icon={<IconAlertCircle size={18} />}
+                title="Sync Failed"
+                color="red"
+                variant="light"
+              >
                 {error}
               </Alert>
             )}
@@ -234,8 +289,8 @@ export default function SyncProgressModal({
             {/* Steps */}
             <Stack gap="sm">
               {steps.map((step, index) => {
-                const isActive = step.status === 'loading';
-                const isCompleted = step.status === 'completed';
+                const isActive = step.status === "loading";
+                const isCompleted = step.status === "completed";
                 const color = getStepStatusColor(step.status);
 
                 return (
@@ -243,7 +298,9 @@ export default function SyncProgressModal({
                     <ThemeIcon
                       size={32}
                       radius="xl"
-                      variant={isCompleted ? 'light' : isActive ? 'filled' : 'outline'}
+                      variant={
+                        isCompleted ? "light" : isActive ? "filled" : "outline"
+                      }
                       color={color}
                     >
                       {isCompleted ? (
@@ -255,7 +312,11 @@ export default function SyncProgressModal({
                       )}
                     </ThemeIcon>
                     <Box style={{ flex: 1 }}>
-                      <Text size="sm" fw={isActive ? 500 : 400} c={isCompleted ? 'dimmed' : undefined}>
+                      <Text
+                        size="sm"
+                        fw={isActive ? 500 : 400}
+                        c={isCompleted ? "dimmed" : undefined}
+                      >
                         {step.label}
                       </Text>
                       {isActive && progress.total > 0 && (
@@ -285,8 +346,14 @@ export default function SyncProgressModal({
 
             {/* Success Message */}
             {completed && (
-              <Alert icon={<IconCheck size={18} />} color="teal" variant="light">
-                <Text size="sm">Successfully synced {progress.total} files to Docmost</Text>
+              <Alert
+                icon={<IconCheck size={18} />}
+                color="teal"
+                variant="light"
+              >
+                <Text size="sm">
+                  Successfully synced {progress.total} files to Docmost
+                </Text>
               </Alert>
             )}
           </Stack>

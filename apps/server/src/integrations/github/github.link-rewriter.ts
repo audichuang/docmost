@@ -45,7 +45,17 @@ export class GithubLinkRewriter {
       creatorId?: string | null;
     },
   ): Promise<{ html: string; attachmentIds: string[] }> {
-    const { owner, repo, ref, token, pageDir, workspaceId, spaceId, pageId, creatorId } = opts;
+    const {
+      owner,
+      repo,
+      ref,
+      token,
+      pageDir,
+      workspaceId,
+      spaceId,
+      pageId,
+      creatorId,
+    } = opts;
     const $ = load(html);
     const created: string[] = [];
     const cache = new Map<string, { id: string; apiPath: string }>();
@@ -53,13 +63,19 @@ export class GithubLinkRewriter {
     try {
       const limStr = this.env.getFileUploadSizeLimit() || '50mb';
       sizeLimit = bytes(limStr) as number;
-    } catch {}
+    } catch {
+      // Use default size limit if parsing fails
+    }
 
     const resolveRel = (raw: string) => {
       try {
         const clean = decodeURIComponent(raw.replace(/^\.?\/+/, ''));
         // pageDir may be '' for root
-        const prefix = pageDir ? (pageDir.endsWith('/') ? pageDir : pageDir + '/') : '';
+        const prefix = pageDir
+          ? pageDir.endsWith('/')
+            ? pageDir
+            : pageDir + '/'
+          : '';
         const full = (prefix + clean).replace(/\\/g, '/');
         const normalized = full
           .split('/')
@@ -82,7 +98,9 @@ export class GithubLinkRewriter {
 
       // ensure we have creatorId before any upload to avoid orphan blobs
       if (!creatorId) {
-        this.logger.warn('No creatorId provided for attachment; skipping asset fetch');
+        this.logger.warn(
+          'No creatorId provided for attachment; skipping asset fetch',
+        );
         return null;
       }
 
@@ -96,12 +114,16 @@ export class GithubLinkRewriter {
       if (!base64) return null;
       const buf = Buffer.from(base64, 'base64');
       if (buf.length > sizeLimit) {
-        this.logger.warn(`asset too large (${buf.length} > ${sizeLimit}): ${repoPath}`);
+        this.logger.warn(
+          `asset too large (${buf.length} > ${sizeLimit}): ${repoPath}`,
+        );
         return null;
       }
 
       const ext = (repoPath.split('.').pop() || '').toLowerCase();
-      const fileName = sanitizeFileName(repoPath.split('/').pop() || `file.${ext || 'bin'}`);
+      const fileName = sanitizeFileName(
+        repoPath.split('/').pop() || `file.${ext || 'bin'}`,
+      );
       const mime = getMimeType(fileName);
       const id = uuid7();
       const storagePath = `${getAttachmentFolderPath(AttachmentType.File, workspaceId)}/${id}/${fileName}`;
@@ -149,28 +171,37 @@ export class GithubLinkRewriter {
     $('img[src]').each((_, el) => {
       const $img = $(el);
       const src = ($img.attr('src') || '').trim();
-      if (!src || /^https?:\/\//i.test(src) || src.startsWith('/api/files/')) return;
+      if (!src || /^https?:\/\//i.test(src) || src.startsWith('/api/files/'))
+        return;
       $img.attr('data-pending-asset', src);
     });
     // videos
     $('video[src]').each((_, el) => {
       const $el = $(el);
       const src = ($el.attr('src') || '').trim();
-      if (!src || /^https?:\/\//i.test(src) || src.startsWith('/api/files/')) return;
+      if (!src || /^https?:\/\//i.test(src) || src.startsWith('/api/files/'))
+        return;
       $el.attr('data-pending-asset', src);
     });
     // <video><source src=...>
     $('video source[src]').each((_, el) => {
       const $el = $(el);
       const src = ($el.attr('src') || '').trim();
-      if (!src || /^https?:\/\//i.test(src) || src.startsWith('/api/files/')) return;
+      if (!src || /^https?:\/\//i.test(src) || src.startsWith('/api/files/'))
+        return;
       $el.attr('data-pending-asset', src);
     });
     // anchors (attachments)
     $('a[href]').each((_, el) => {
       const $a = $(el);
       const href = ($a.attr('href') || '').trim();
-      if (!href || /^https?:\/\//i.test(href) || href.startsWith('/api/files/') || href.startsWith('#')) return;
+      if (
+        !href ||
+        /^https?:\/\//i.test(href) ||
+        href.startsWith('/api/files/') ||
+        href.startsWith('#')
+      )
+        return;
       $a.attr('data-pending-asset', href);
     });
 

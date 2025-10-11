@@ -20,19 +20,21 @@ export const DEFAULT_FREQUENTLY_USED_EMOJI_MART = `{
 }`;
 
 export const incrementEmojiUsage = (emojiId: string) => {
-  const frequentlyUsedEmoji =
-    JSON.parse(localStorage.getItem(LOCAL_STORAGE_FREQUENT_KEY) || DEFAULT_FREQUENTLY_USED_EMOJI_MART);
+  const frequentlyUsedEmoji = JSON.parse(
+    localStorage.getItem(LOCAL_STORAGE_FREQUENT_KEY) ||
+      DEFAULT_FREQUENTLY_USED_EMOJI_MART,
+  );
   frequentlyUsedEmoji[emojiId]
     ? (frequentlyUsedEmoji[emojiId] += 1)
     : (frequentlyUsedEmoji[emojiId] = 1);
   localStorage.setItem(
     LOCAL_STORAGE_FREQUENT_KEY,
-    JSON.stringify(frequentlyUsedEmoji)
+    JSON.stringify(frequentlyUsedEmoji),
   );
 };
 
 export const sortFrequentlyUsedEmoji = async (
-  frequentlyUsedEmoji: EmojiMartFrequentlyType
+  frequentlyUsedEmoji: EmojiMartFrequentlyType,
 ): Promise<EmojiMenuItemType[]> => {
   const data = await Promise.all(
     Object.entries(frequentlyUsedEmoji).map(
@@ -48,12 +50,15 @@ export const sortFrequentlyUsedEmoji = async (
             .insertContent((await getEmojiDataFromNative(id))?.native + " ")
             .run();
         },
-      })
-    )
+      }),
+    ),
   );
   return data.sort((a, b) => b.count - a.count);
 };
 
 export const getFrequentlyUsedEmoji = () => {
-  return JSON.parse(localStorage.getItem(LOCAL_STORAGE_FREQUENT_KEY) || DEFAULT_FREQUENTLY_USED_EMOJI_MART);
-}
+  return JSON.parse(
+    localStorage.getItem(LOCAL_STORAGE_FREQUENT_KEY) ||
+      DEFAULT_FREQUENTLY_USED_EMOJI_MART,
+  );
+};

@@ -40,7 +40,10 @@ import ExportModal from "@/components/common/export-modal";
 import { mobileSidebarAtom } from "@/components/layouts/global/hooks/atoms/sidebar-atom.ts";
 import { useToggleSidebar } from "@/components/layouts/global/hooks/hooks/use-toggle-sidebar.ts";
 import { searchSpotlight } from "@/features/search/constants";
-import { listSources, rescanSource } from "@/features/integrations/github/services/github-integration-api";
+import {
+  listSources,
+  rescanSource,
+} from "@/features/integrations/github/services/github-integration-api";
 
 export function SpaceSidebar() {
   const { t } = useTranslation();
@@ -258,7 +261,9 @@ function SpaceMenu({ spaceId, onSpaceSettings }: SpaceMenuProps) {
               try {
                 setSyncing(true);
                 const all = await listSources();
-                const targets = (all || []).filter((s: any) => s.spaceId === spaceId);
+                const targets = (all || []).filter(
+                  (s: any) => s.spaceId === spaceId,
+                );
                 for (const s of targets) {
                   await rescanSource(s.id, { force: true });
                 }

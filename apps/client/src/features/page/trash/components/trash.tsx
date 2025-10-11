@@ -38,7 +38,8 @@ export default function Trash() {
   const { page, setPage } = usePaginateAndSearch();
   const { data: space } = useGetSpaceBySlugQuery(spaceSlug);
   const { data: deletedPages, isLoading } = useDeletedPagesQuery(space?.id, {
-    page, limit: 50
+    page,
+    limit: 50,
   });
   const restorePageMutation = useRestorePageMutation();
   const deletePageMutation = useDeletePageMutation();

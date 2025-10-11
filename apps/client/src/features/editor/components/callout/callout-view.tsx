@@ -34,7 +34,7 @@ export default function CalloutView(props: NodeViewProps) {
 
 function getCalloutIcon(type: CalloutType, customIcon?: string) {
   if (customIcon && customIcon.trim() !== "") {
-    return <span style={{ fontSize: '18px' }}>{customIcon}</span>;
+    return <span style={{ fontSize: "18px" }}>{customIcon}</span>;
   }
 
   switch (type) {

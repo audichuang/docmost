@@ -1,17 +1,41 @@
-import { Body, Controller, Get, Post, Query, UseGuards, Param, HttpCode, ParseUUIDPipe, ForbiddenException, Patch, Delete, Res, Req, Sse } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Query,
+  UseGuards,
+  Param,
+  HttpCode,
+  ParseUUIDPipe,
+  ForbiddenException,
+  Patch,
+  Delete,
+  Res,
+  Req,
+  Sse,
+} from '@nestjs/common';
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { Observable, map } from 'rxjs';
 import { GithubService } from './github.service';
 import { GithubSyncService } from './github.sync.service';
 import { GithubSyncProgressService } from './github-sync-progress.service';
-import { CreateSourceDto, ListReposQueryDto, UpdateSourceDto, LinkInstallationDto } from './github.types';
+import {
+  CreateSourceDto,
+  ListReposQueryDto,
+  UpdateSourceDto,
+  LinkInstallationDto,
+} from './github.types';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Public } from '../../common/decorators/public.decorator';
 import { SkipTransform } from '../../common/decorators/skip-transform.decorator';
 import { AuthWorkspace } from '../../common/decorators/auth-workspace.decorator';
 import { User, Workspace } from '@docmost/db/types/entity.types';
 import SpaceAbilityFactory from '../../core/casl/abilities/space-ability.factory';
-import { SpaceCaslAction, SpaceCaslSubject } from '../../core/casl/interfaces/space-ability.type';
+import {
+  SpaceCaslAction,
+  SpaceCaslSubject,
+} from '../../core/casl/interfaces/space-ability.type';
 import { AuthUser } from '../../common/decorators/auth-user.decorator';
 import { InjectKysely } from 'nestjs-kysely';
 import { KyselyDB } from '@docmost/db/types/kysely.types';
@@ -41,14 +65,19 @@ export class GithubController {
   }
 
   @Get('installations/auth-url')
-  async getAuthUrl(@AuthWorkspace() workspace: Workspace, @Req() req: FastifyRequest) {
+  async getAuthUrl(
+    @AuthWorkspace() workspace: Workspace,
+    @Req() req: FastifyRequest,
+  ) {
     const appSlug = this.env.getGithubAppSlug();
     const callbackUrl = `${this.env.getAppUrl()}/api/integrations/github/callback`;
 
     // Store workspace ID in session or use state parameter
-    const state = Buffer.from(JSON.stringify({
-      workspaceId: workspace.id
-    })).toString('base64');
+    const state = Buffer.from(
+      JSON.stringify({
+        workspaceId: workspace.id,
+      }),
+    ).toString('base64');
 
     // Use GitHub App installation flow
     // User will be redirected to choose which account to install on
@@ -70,8 +99,15 @@ export class GithubController {
 
     try {
       if (!installationId || !state) {
-        console.error('GitHub callback missing params:', { installationId, state });
-        return res.status(302).redirect(`${frontendUrl}/settings/integrations/github?error=missing_params`);
+        console.error('GitHub callback missing params:', {
+          installationId,
+          state,
+        });
+        return res
+          .status(302)
+          .redirect(
+            `${frontendUrl}/settings/integrations/github?error=missing_params`,
+          );
       }
 
       // Decode workspace ID from state
@@ -81,28 +117,48 @@ export class GithubController {
         workspaceId = decoded.workspaceId;
       } catch (err) {
         console.error('Failed to decode state:', err);
-        return res.status(302).redirect(`${frontendUrl}/settings/integrations/github?error=invalid_state`);
+        return res
+          .status(302)
+          .redirect(
+            `${frontendUrl}/settings/integrations/github?error=invalid_state`,
+          );
       }
 
       if (!workspaceId) {
-        return res.status(302).redirect(`${frontendUrl}/settings/integrations/github?error=invalid_state`);
+        return res
+          .status(302)
+          .redirect(
+            `${frontendUrl}/settings/integrations/github?error=invalid_state`,
+          );
       }
 
       // Get installation info from GitHub
-      const installationInfo = await this.gh.getInstallationInfo(installationId);
+      const installationInfo =
+        await this.gh.getInstallationInfo(installationId);
       console.log('Installation info from GitHub:', installationInfo?.json);
 
       if (!installationInfo?.json || !installationInfo.json.account) {
         console.error('Installation info invalid:', installationInfo);
-        return res.status(302).redirect(`${frontendUrl}/settings/integrations/github?error=installation_not_found`);
+        return res
+          .status(302)
+          .redirect(
+            `${frontendUrl}/settings/integrations/github?error=installation_not_found`,
+          );
       }
 
       const accountLogin = installationInfo.json.account.login;
       const accountType = installationInfo.json.account.type;
 
       if (!accountLogin || !accountType) {
-        console.error('Installation account info missing:', { accountLogin, accountType });
-        return res.status(302).redirect(`${frontendUrl}/settings/integrations/github?error=installation_not_found`);
+        console.error('Installation account info missing:', {
+          accountLogin,
+          accountType,
+        });
+        return res
+          .status(302)
+          .redirect(
+            `${frontendUrl}/settings/integrations/github?error=installation_not_found`,
+          );
       }
 
       // Link installation to workspace
@@ -112,11 +168,19 @@ export class GithubController {
         accountType,
       });
 
-      console.log(`Successfully linked installation ${installationId} to workspace ${workspaceId}`);
-      return res.status(302).redirect(`${frontendUrl}/settings/integrations/github?success=true`);
+      console.log(
+        `Successfully linked installation ${installationId} to workspace ${workspaceId}`,
+      );
+      return res
+        .status(302)
+        .redirect(`${frontendUrl}/settings/integrations/github?success=true`);
     } catch (err) {
       console.error('GitHub OAuth callback error:', err);
-      return res.status(302).redirect(`${frontendUrl}/settings/integrations/github?error=server_error`);
+      return res
+        .status(302)
+        .redirect(
+          `${frontendUrl}/settings/integrations/github?error=server_error`,
+        );
     }
   }
 
@@ -142,7 +206,10 @@ export class GithubController {
   }
 
   @Get('repos')
-  async listRepos(@Query() q: ListReposQueryDto, @AuthWorkspace() workspace: Workspace) {
+  async listRepos(
+    @Query() q: ListReposQueryDto,
+    @AuthWorkspace() workspace: Workspace,
+  ) {
     return this.gh.listRepos(workspace.id, q.githubInstallationId);
   }
 
@@ -179,9 +246,9 @@ export class GithubController {
 
   @Sse('sources/progress/:jobId')
   syncProgress(@Param('jobId') jobId: string): Observable<any> {
-    return this.progress.getProgressStream(jobId).pipe(
-      map((event) => ({ data: event })),
-    );
+    return this.progress
+      .getProgressStream(jobId)
+      .pipe(map((event) => ({ data: event })));
   }
 
   @Get('sources')
@@ -210,7 +277,9 @@ export class GithubController {
         throw new ForbiddenException();
       }
     }
-    await this.sync.fullSync(workspace.id, sourceId, { force: force === '1' || force === 'true' });
+    await this.sync.fullSync(workspace.id, sourceId, {
+      force: force === '1' || force === 'true',
+    });
     return { ok: true };
   }
 
@@ -233,7 +302,11 @@ export class GithubController {
         throw new ForbiddenException();
       }
     }
-    const changed = await this.sync.updateSourceActive(workspace.id, sourceId, dto.active);
+    const changed = await this.sync.updateSourceActive(
+      workspace.id,
+      sourceId,
+      dto.active,
+    );
     return { ok: true, changed };
   }
 

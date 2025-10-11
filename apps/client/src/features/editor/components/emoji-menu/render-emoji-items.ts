@@ -40,7 +40,7 @@ const renderEmojiItems = () => {
       editor: ReturnType<typeof useEditor>;
       clientRect: DOMRect;
     }) => {
-      component?.updateProps({...props, isLoading: false});
+      component?.updateProps({ ...props, isLoading: false });
 
       if (!props.clientRect) {
         return;
@@ -69,7 +69,7 @@ const renderEmojiItems = () => {
     onKeyDown: (props: { event: KeyboardEvent }) => {
       if (props.event.key === "Escape") {
         popup?.[0].hide();
-        component?.destroy()
+        component?.destroy();
 
         return true;
       }

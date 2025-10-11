@@ -40,7 +40,9 @@ export class R2TokenController {
 
       // Only expose full token in development mode
       const isDevelopment = process.env.NODE_ENV === 'development';
-      const safeToken = isDevelopment ? token : `${token.substring(0, 20)}...[REDACTED]`;
+      const safeToken = isDevelopment
+        ? token
+        : `${token.substring(0, 20)}...[REDACTED]`;
 
       // Build test URL (use safe token in production)
       const testImageUrl = `https://${r2Domain}/docmost/test-image.png?token=${safeToken}`;
@@ -50,7 +52,9 @@ export class R2TokenController {
         token: safeToken,
         tokenParts: {
           timestamp: timestampPart,
-          signature: isDevelopment ? signaturePart.substring(0, 32) + '...' : '[REDACTED]',
+          signature: isDevelopment
+            ? signaturePart.substring(0, 32) + '...'
+            : '[REDACTED]',
         },
         config: {
           r2Domain,

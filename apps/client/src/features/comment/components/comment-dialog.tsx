@@ -67,7 +67,10 @@ function CommentDialog({ editor, pageId }: CommentDialogProps) {
       setActiveCommentId(createdComment.id);
 
       //unselect text to close bubble menu
-      editor.commands.setTextSelection({ from: editor.view.state.selection.from, to: editor.view.state.selection.from });
+      editor.commands.setTextSelection({
+        from: editor.view.state.selection.from,
+        to: editor.view.state.selection.from,
+      });
 
       setAsideState({ tab: "comments", isAsideOpen: true });
       setTimeout(() => {
@@ -75,9 +78,7 @@ function CommentDialog({ editor, pageId }: CommentDialogProps) {
         const commentElement = document.querySelector(selector);
         commentElement?.scrollIntoView({ behavior: "smooth", block: "center" });
 
-        editor.view.dispatch(
-          editor.state.tr.scrollIntoView()
-        );
+        editor.view.dispatch(editor.state.tr.scrollIntoView());
       }, 400);
 
       emit({

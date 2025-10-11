@@ -103,10 +103,7 @@ const CommandList = ({
                 })}
               >
                 <Group>
-                  <ActionIcon
-                    variant="default"
-                    component="div"
-                  >
+                  <ActionIcon variant="default" component="div">
                     <item.icon size={18} />
                   </ActionIcon>
 

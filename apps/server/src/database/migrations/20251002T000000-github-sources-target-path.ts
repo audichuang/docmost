@@ -4,7 +4,9 @@ export async function up(db: Kysely<any>): Promise<void> {
   // Add target_path column to github_sources table
   await db.schema
     .alterTable('github_sources')
-    .addColumn('target_path', 'varchar(500)', (col) => col.notNull().defaultTo(''))
+    .addColumn('target_path', 'varchar(500)', (col) =>
+      col.notNull().defaultTo(''),
+    )
     .execute();
 }
 

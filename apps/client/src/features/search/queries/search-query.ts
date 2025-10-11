@@ -4,14 +4,14 @@ import {
   searchPage,
   searchShare,
   searchSuggestions,
-} from '@/features/search/services/search-service';
+} from "@/features/search/services/search-service";
 import {
   IAttachmentSearch,
   IPageSearch,
   IPageSearchParams,
   ISuggestionResult,
   SearchSuggestionParams,
-} from '@/features/search/types/search.types';
+} from "@/features/search/types/search.types";
 
 export function usePageSearchQuery(
   params: IPageSearchParams,

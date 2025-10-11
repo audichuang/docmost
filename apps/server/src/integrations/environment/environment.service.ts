@@ -276,7 +276,9 @@ export class EnvironmentService {
   }
 
   getGithubPrivateKey(): string {
-    const keyPath = this.configService.get<string>('GITHUB_APP_PRIVATE_KEY_PATH');
+    const keyPath = this.configService.get<string>(
+      'GITHUB_APP_PRIVATE_KEY_PATH',
+    );
 
     if (keyPath) {
       try {
@@ -302,7 +304,8 @@ export class EnvironmentService {
 
   getGithubApiBase(): string {
     return (
-      this.configService.get<string>('GITHUB_API_BASE') || 'https://api.github.com'
+      this.configService.get<string>('GITHUB_API_BASE') ||
+      'https://api.github.com'
     );
   }
 
@@ -311,15 +314,21 @@ export class EnvironmentService {
   }
 
   getGithubFetchRetries(): number {
-    return parseInt(this.configService.get<string>('GITHUB_FETCH_RETRIES', '2'));
+    return parseInt(
+      this.configService.get<string>('GITHUB_FETCH_RETRIES', '2'),
+    );
   }
 
   getGithubFetchBackoffBaseMs(): number {
-    return parseInt(this.configService.get<string>('GITHUB_FETCH_BACKOFF_BASE_MS', '500'));
+    return parseInt(
+      this.configService.get<string>('GITHUB_FETCH_BACKOFF_BASE_MS', '500'),
+    );
   }
 
   getGithubFetchTimeoutMs(): number {
-    return parseInt(this.configService.get<string>('GITHUB_FETCH_TIMEOUT_MS', '15000'));
+    return parseInt(
+      this.configService.get<string>('GITHUB_FETCH_TIMEOUT_MS', '15000'),
+    );
   }
 
   // R2 Image Token Protection
@@ -329,10 +338,14 @@ export class EnvironmentService {
 
   getR2TokenSecret(): string {
     // Use APP_SECRET as fallback if R2_TOKEN_SECRET is not set
-    return this.configService.get<string>('R2_TOKEN_SECRET') || this.getAppSecret();
+    return (
+      this.configService.get<string>('R2_TOKEN_SECRET') || this.getAppSecret()
+    );
   }
 
   getR2TokenValiditySeconds(): number {
-    return parseInt(this.configService.get<string>('R2_TOKEN_VALIDITY_SECONDS', '300'));
+    return parseInt(
+      this.configService.get<string>('R2_TOKEN_VALIDITY_SECONDS', '300'),
+    );
   }
 }

@@ -4,7 +4,14 @@ import { filter, map } from 'rxjs/operators';
 
 export type SyncProgressEvent = {
   jobId: string;
-  type: 'init' | 'fetching_tree' | 'tree_fetched' | 'syncing_files' | 'file_synced' | 'completed' | 'error';
+  type:
+    | 'init'
+    | 'fetching_tree'
+    | 'tree_fetched'
+    | 'syncing_files'
+    | 'file_synced'
+    | 'completed'
+    | 'error';
   message: string;
   progress?: {
     current: number;

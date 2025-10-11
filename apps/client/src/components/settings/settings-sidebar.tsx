@@ -110,7 +110,11 @@ const groupedData: DataGroup[] = [
         isAdmin: true,
         showDisabledInNonEE: true,
       },
-      { label: "Integrations (GitHub)", icon: IconBrandGithub, path: "/settings/integrations/github" },
+      {
+        label: "Integrations (GitHub)",
+        icon: IconBrandGithub,
+        path: "/settings/integrations/github",
+      },
     ],
   },
   {

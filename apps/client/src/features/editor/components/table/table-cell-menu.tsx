@@ -69,7 +69,7 @@ export const TableCellMenu = React.memo(
         <ActionIcon.Group>
           <TableBackgroundColor editor={editor} />
           <TableTextAlignment editor={editor} />
-          
+
           <Tooltip position="top" label={t("Merge cells")}>
             <ActionIcon
               onClick={mergeCells}

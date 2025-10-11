@@ -44,7 +44,9 @@ export class ContentTransformerService {
     // Get or generate token
     const token = await this.r2TokenService.getOrGenerateToken();
     const tokenPrefix = token.substring(0, 10);
-    this.logger.log(`[R2 Transform] Using Token: ${tokenPrefix}... (${token.length} chars)`);
+    this.logger.log(
+      `[R2 Transform] Using Token: ${tokenPrefix}... (${token.length} chars)`,
+    );
 
     // Transform URLs
     const transformedContent = this.appendTokenToUrls(content, r2Domain, token);

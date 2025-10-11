@@ -86,8 +86,16 @@ export class GithubSyncService {
         eb
           .selectFrom('githubWebhookEvents as e')
           .select('e.ok')
-          .whereRef('e.githubInstallationId', '=', 'githubSources.githubInstallationId')
-          .where('e.repoFullName', '=', sql<string>`${eb.ref('githubSources.owner')} || '/' || ${eb.ref('githubSources.repo')}`)
+          .whereRef(
+            'e.githubInstallationId',
+            '=',
+            'githubSources.githubInstallationId',
+          )
+          .where(
+            'e.repoFullName',
+            '=',
+            sql<string>`${eb.ref('githubSources.owner')} || '/' || ${eb.ref('githubSources.repo')}`,
+          )
           .orderBy('e.processedAt desc')
           .orderBy('e.createdAt desc')
           .limit(1)
@@ -97,8 +105,16 @@ export class GithubSyncService {
         eb
           .selectFrom('githubWebhookEvents as e2')
           .select('e2.processedAt')
-          .whereRef('e2.githubInstallationId', '=', 'githubSources.githubInstallationId')
-          .where('e2.repoFullName', '=', sql<string>`${eb.ref('githubSources.owner')} || '/' || ${eb.ref('githubSources.repo')}`)
+          .whereRef(
+            'e2.githubInstallationId',
+            '=',
+            'githubSources.githubInstallationId',
+          )
+          .where(
+            'e2.repoFullName',
+            '=',
+            sql<string>`${eb.ref('githubSources.owner')} || '/' || ${eb.ref('githubSources.repo')}`,
+          )
           .orderBy('e2.processedAt desc')
           .orderBy('e2.createdAt desc')
           .limit(1)
@@ -137,8 +153,15 @@ export class GithubSyncService {
         });
       }
 
-      const token = await this.gh.getInstallationToken(source.githubInstallationId);
-      const tree = await this.gh.getTree(source.owner, source.repo, source.ref, token);
+      const token = await this.gh.getInstallationToken(
+        source.githubInstallationId,
+      );
+      const tree = await this.gh.getTree(
+        source.owner,
+        source.repo,
+        source.ref,
+        token,
+      );
 
       const files: Array<{ path: string }> = (tree?.tree || [])
         .filter((n: any) => n.type === 'blob')
@@ -173,7 +196,10 @@ export class GithubSyncService {
         // Emit progress for each file
         if (jobId) {
           // Emit progress every file for small repos, every 5 files for large repos
-          const shouldEmit = files.length <= 20 || syncedCount % 5 === 0 || syncedCount === files.length;
+          const shouldEmit =
+            files.length <= 20 ||
+            syncedCount % 5 === 0 ||
+            syncedCount === files.length;
           if (shouldEmit) {
             this.progress.emit({
               jobId,
@@ -185,184 +211,254 @@ export class GithubSyncService {
         }
 
         let relPath = f.path;
-      if (source.rootDir) {
-        const prefix = source.rootDir.endsWith('/') ? source.rootDir : `${source.rootDir}/`;
-        if (!relPath.startsWith(prefix)) {
-          continue; // outside configured root_dir; skip
+        if (source.rootDir) {
+          const prefix = source.rootDir.endsWith('/')
+            ? source.rootDir
+            : `${source.rootDir}/`;
+          if (!relPath.startsWith(prefix)) {
+            continue; // outside configured root_dir; skip
+          }
+          relPath = relPath.slice(prefix.length);
         }
-        relPath = relPath.slice(prefix.length);
-      }
 
-      const relDir = relPath.includes('/') ? relPath.substring(0, relPath.lastIndexOf('/')) : '';
-      const fileName = relPath.includes('/') ? relPath.substring(relPath.lastIndexOf('/') + 1) : relPath;
-      const isIndexLike = /^(readme|index)\.(md|mdx)$/i.test(fileName) && relDir.length > 0;
+        const relDir = relPath.includes('/')
+          ? relPath.substring(0, relPath.lastIndexOf('/'))
+          : '';
+        const fileName = relPath.includes('/')
+          ? relPath.substring(relPath.lastIndexOf('/') + 1)
+          : relPath;
+        const isIndexLike =
+          /^(readme|index)\.(md|mdx)$/i.test(fileName) && relDir.length > 0;
 
-      const existing = await this.db
-        .selectFrom('githubFiles')
-        .selectAll()
-        .where('sourceId', '=', source.id)
-        .where('path', '=', relPath)
-        .executeTakeFirst();
+        const existing = await this.db
+          .selectFrom('githubFiles')
+          .selectAll()
+          .where('sourceId', '=', source.id)
+          .where('path', '=', relPath)
+          .executeTakeFirst();
 
-      const etag = opts?.force ? undefined : (existing?.etag || undefined);
-      const contentRes = await this.gh.getContent(
-        source.owner,
-        source.repo,
-        f.path,
-        source.ref,
-        token,
-        etag,
-      );
+        const etag = opts?.force ? undefined : existing?.etag || undefined;
+        const contentRes = await this.gh.getContent(
+          source.owner,
+          source.repo,
+          f.path,
+          source.ref,
+          token,
+          etag,
+        );
 
-      if (contentRes.status === 304) {
-        this.logger.debug(`[fullSync] ${source.id} ${relPath} -> 304 not modified`);
-        // mark scanned time on existing mapping
-        if (existing) {
-          await this.db
-            .updateTable('githubFiles')
-            .set({ updatedAt: new Date() })
-            .where('id', '=', existing.id)
-            .execute();
+        if (contentRes.status === 304) {
+          this.logger.debug(
+            `[fullSync] ${source.id} ${relPath} -> 304 not modified`,
+          );
+          // mark scanned time on existing mapping
+          if (existing) {
+            await this.db
+              .updateTable('githubFiles')
+              .set({ updatedAt: new Date() })
+              .where('id', '=', existing.id)
+              .execute();
+          }
+          continue; // unchanged
         }
-        continue; // unchanged
-      }
-      if (contentRes.status !== 200) {
-        this.logger.warn(`[fullSync] skip ${f.path} status=${contentRes.status}`);
-        continue;
-      }
+        if (contentRes.status !== 200) {
+          this.logger.warn(
+            `[fullSync] skip ${f.path} status=${contentRes.status}`,
+          );
+          continue;
+        }
 
-      const body = contentRes.body;
-      const base64 = body?.content as string;
-      const md = base64 ? Buffer.from(base64, 'base64').toString('utf-8') : '';
+        const body = contentRes.body;
+        const base64 = body?.content as string;
+        const md = base64
+          ? Buffer.from(base64, 'base64').toString('utf-8')
+          : '';
 
-      // Markdown → HTML → rewrite assets → TipTap JSON
-      const html = await this.mapper.markdownToHtml(md);
-      const pageDir = f.path.includes('/') ? f.path.substring(0, f.path.lastIndexOf('/')) : '';
+        // Markdown → HTML → rewrite assets → TipTap JSON
+        const html = await this.mapper.markdownToHtml(md);
+        const pageDir = f.path.includes('/')
+          ? f.path.substring(0, f.path.lastIndexOf('/'))
+          : '';
 
-      // Ensure folder chain so the page hierarchy mirrors repo directories.
-      const folderPageId = await this.ensureFolderChain(workspaceId, source, relDir, folderCache);
-      const rewrite = await this.rewriter.rewriteHtml(html, {
-        owner: source.owner,
-        repo: source.repo,
-        ref: source.ref,
-        token,
-        pageDir,
-        workspaceId,
-        spaceId: source.spaceId,
-        pageId: isIndexLike ? (folderPageId ?? null) : (existing?.pageId ?? null),
-        creatorId: await this.getDefaultWorkspaceUserId(workspaceId),
-      });
-
-      const prosemirrorJson = await this.mapper.htmlToTipTap(rewrite.html);
-      const { title: extractedTitle, prosemirrorJson: finalJson } = await this.mapper.extractTitleAndRemoveHeading(prosemirrorJson);
-      const title = extractedTitle;
-      const ydocBuf = createYdocFromJson(finalJson);
-      const textContent = jsonToText(finalJson);
-
-      // If file is README/index inside a folder, target the folder page itself.
-      if (isIndexLike && folderPageId) {
-        this.logger.debug(`[fullSync] ${source.id} ${relPath} -> update folder page ${folderPageId}`);
-        await this.pageRepo.updatePage(
-          {
-            title: title,
-            content: finalJson,
-            textContent,
-            ydoc: ydocBuf,
-            lastUpdatedById: await this.getDefaultWorkspaceUserId(workspaceId),
-            isLocked: true,
-          },
-          folderPageId,
-        );
-        // Evict in-memory collab doc
-        this.collab.closeDocumentConnections(`page.${folderPageId}`);
-
-        // ensure folder mapping row exists for the directory path (with trailing slash)
-        await this.upsertFolderMapping(source.id, relDir, title, folderPageId);
-
-        // also map the actual README path to the same page for traceability
-        await this.upsertGithubFile(source.id, relPath, body.sha, contentRes.etag, title, folderPageId);
-        continue;
-      }
-
-      if (existing?.pageId) {
-        this.logger.debug(`[fullSync] ${source.id} ${relPath} -> update page ${existing.pageId}`);
-        await this.pageRepo.updatePage(
-          {
-            title: title,
-            content: finalJson,
-            textContent,
-            ydoc: ydocBuf,
-            lastUpdatedById: await this.getDefaultWorkspaceUserId(workspaceId),
-            isLocked: true,
-          },
-          existing.pageId,
-        );
-        this.collab.closeDocumentConnections(`page.${existing.pageId}`);
-        // Ensure correct tree placement according to folder structure
-        await this.db
-          .updateTable('pages')
-          .set({ parentPageId: folderPageId ?? source.rootPageId ?? null, updatedAt: new Date() })
-          .where('id', '=', existing.pageId)
-          .execute();
-      } else {
-        const position = await this.nextPagePosition(source.spaceId, source.rootPageId ?? undefined);
-        const created = await this.pageRepo.insertPage({
-          slugId: generateSlugId(),
-          title,
-          content: finalJson,
-          textContent,
-          ydoc: ydocBuf,
-          position,
-          parentPageId: folderPageId ?? source.rootPageId ?? null,
-          spaceId: source.spaceId,
-          creatorId: await this.getDefaultWorkspaceUserId(workspaceId),
+        // Ensure folder chain so the page hierarchy mirrors repo directories.
+        const folderPageId = await this.ensureFolderChain(
           workspaceId,
-          lastUpdatedById: await this.getDefaultWorkspaceUserId(workspaceId),
-          isLocked: true,
+          source,
+          relDir,
+          folderCache,
+        );
+        const rewrite = await this.rewriter.rewriteHtml(html, {
+          owner: source.owner,
+          repo: source.repo,
+          ref: source.ref,
+          token,
+          pageDir,
+          workspaceId,
+          spaceId: source.spaceId,
+          pageId: isIndexLike
+            ? (folderPageId ?? null)
+            : (existing?.pageId ?? null),
+          creatorId: await this.getDefaultWorkspaceUserId(workspaceId),
         });
-        this.logger.debug(`[fullSync] ${source.id} ${relPath} -> create page ${created.id} parent=${folderPageId ?? source.rootPageId ?? null}`);
-        this.collab.closeDocumentConnections(`page.${created.id}`);
 
-        // link mapping to page
-        await this.upsertGithubFile(source.id, relPath, body.sha, contentRes.etag, title, created.id);
+        const prosemirrorJson = await this.mapper.htmlToTipTap(rewrite.html);
+        const { title: extractedTitle, prosemirrorJson: finalJson } =
+          await this.mapper.extractTitleAndRemoveHeading(prosemirrorJson);
+        const title = extractedTitle;
+        const ydocBuf = createYdocFromJson(finalJson);
+        const textContent = jsonToText(finalJson);
 
-        // assign attachments (created without pageId) to this page
-        if (rewrite.attachmentIds.length > 0) {
-          await this.db
-            .updateTable('attachments')
-            .set({ pageId: created.id, updatedAt: new Date() })
-            .where('id', 'in', rewrite.attachmentIds)
-            .execute();
+        // If file is README/index inside a folder, target the folder page itself.
+        if (isIndexLike && folderPageId) {
+          this.logger.debug(
+            `[fullSync] ${source.id} ${relPath} -> update folder page ${folderPageId}`,
+          );
+          await this.pageRepo.updatePage(
+            {
+              title: title,
+              content: finalJson,
+              textContent,
+              ydoc: ydocBuf,
+              lastUpdatedById:
+                await this.getDefaultWorkspaceUserId(workspaceId),
+              isLocked: true,
+            },
+            folderPageId,
+          );
+          // Evict in-memory collab doc
+          this.collab.closeDocumentConnections(`page.${folderPageId}`);
+
+          // ensure folder mapping row exists for the directory path (with trailing slash)
+          await this.upsertFolderMapping(
+            source.id,
+            relDir,
+            title,
+            folderPageId,
+          );
+
+          // also map the actual README path to the same page for traceability
+          await this.upsertGithubFile(
+            source.id,
+            relPath,
+            body.sha,
+            contentRes.etag,
+            title,
+            folderPageId,
+          );
+          continue;
         }
-        continue;
+
+        if (existing?.pageId) {
+          this.logger.debug(
+            `[fullSync] ${source.id} ${relPath} -> update page ${existing.pageId}`,
+          );
+          await this.pageRepo.updatePage(
+            {
+              title: title,
+              content: finalJson,
+              textContent,
+              ydoc: ydocBuf,
+              lastUpdatedById:
+                await this.getDefaultWorkspaceUserId(workspaceId),
+              isLocked: true,
+            },
+            existing.pageId,
+          );
+          this.collab.closeDocumentConnections(`page.${existing.pageId}`);
+          // Ensure correct tree placement according to folder structure
+          await this.db
+            .updateTable('pages')
+            .set({
+              parentPageId: folderPageId ?? source.rootPageId ?? null,
+              updatedAt: new Date(),
+            })
+            .where('id', '=', existing.pageId)
+            .execute();
+        } else {
+          const position = await this.nextPagePosition(
+            source.spaceId,
+            source.rootPageId ?? undefined,
+          );
+          const created = await this.pageRepo.insertPage({
+            slugId: generateSlugId(),
+            title,
+            content: finalJson,
+            textContent,
+            ydoc: ydocBuf,
+            position,
+            parentPageId: folderPageId ?? source.rootPageId ?? null,
+            spaceId: source.spaceId,
+            creatorId: await this.getDefaultWorkspaceUserId(workspaceId),
+            workspaceId,
+            lastUpdatedById: await this.getDefaultWorkspaceUserId(workspaceId),
+            isLocked: true,
+          });
+          this.logger.debug(
+            `[fullSync] ${source.id} ${relPath} -> create page ${created.id} parent=${folderPageId ?? source.rootPageId ?? null}`,
+          );
+          this.collab.closeDocumentConnections(`page.${created.id}`);
+
+          // link mapping to page
+          await this.upsertGithubFile(
+            source.id,
+            relPath,
+            body.sha,
+            contentRes.etag,
+            title,
+            created.id,
+          );
+
+          // assign attachments (created without pageId) to this page
+          if (rewrite.attachmentIds.length > 0) {
+            await this.db
+              .updateTable('attachments')
+              .set({ pageId: created.id, updatedAt: new Date() })
+              .where('id', 'in', rewrite.attachmentIds)
+              .execute();
+          }
+          continue;
+        }
+
+        // update mapping
+        await this.upsertGithubFile(
+          source.id,
+          relPath,
+          body.sha,
+          contentRes.etag,
+          title,
+          existing?.pageId ?? (isIndexLike ? folderPageId : null),
+        );
       }
 
-      // update mapping
-      await this.upsertGithubFile(source.id, relPath, body.sha, contentRes.etag, title, existing?.pageId ?? (isIndexLike ? folderPageId : null));
-    }
+      // Update last_full_scan_sha for the source to current head
+      try {
+        const headSha = await this.gh.getCommitSha(
+          source.owner,
+          source.repo,
+          source.ref,
+          token,
+        );
+        await this.db
+          .updateTable('githubSources')
+          .set({ lastFullScanSha: headSha, updatedAt: new Date() })
+          .where('id', '=', source.id)
+          .execute();
+      } catch (e) {
+        this.logger.warn(
+          `Unable to update last_full_scan_sha for source ${source.id}`,
+        );
+      }
 
-    // Update last_full_scan_sha for the source to current head
-    try {
-      const headSha = await this.gh.getCommitSha(source.owner, source.repo, source.ref, token);
-      await this.db
-        .updateTable('githubSources')
-        .set({ lastFullScanSha: headSha, updatedAt: new Date() })
-        .where('id', '=', source.id)
-        .execute();
-    } catch (e) {
-      this.logger.warn(`Unable to update last_full_scan_sha for source ${source.id}`);
-    }
+      this.logger.log(`Full sync done for source ${sourceId}`);
 
-    this.logger.log(`Full sync done for source ${sourceId}`);
-
-    if (jobId) {
-      this.progress.emit({
-        jobId,
-        type: 'completed',
-        message: `Sync completed! Processed ${files.length} files.`,
-        data: { syncedCount: files.length },
-      });
-    }
+      if (jobId) {
+        this.progress.emit({
+          jobId,
+          type: 'completed',
+          message: `Sync completed! Processed ${files.length} files.`,
+          data: { syncedCount: files.length },
+        });
+      }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       this.logger.error(`Full sync failed for source ${sourceId}:`, err);
@@ -384,7 +480,12 @@ export class GithubSyncService {
    */
   private async ensureTargetPath(
     workspaceId: string,
-    source: { id: string; spaceId: string; rootPageId: string | null; targetPath: string },
+    source: {
+      id: string;
+      spaceId: string;
+      rootPageId: string | null;
+      targetPath: string;
+    },
     cache: Map<string, string | null>,
   ): Promise<string | null> {
     if (!source.targetPath || source.targetPath.trim() === '') {
@@ -396,7 +497,7 @@ export class GithubSyncService {
       return cache.get(cacheKey)!;
     }
 
-    const segments = source.targetPath.split('/').filter(s => s.trim());
+    const segments = source.targetPath.split('/').filter((s) => s.trim());
     let currentPath = '';
     let parentId: string | null = source.rootPageId ?? null;
 
@@ -425,7 +526,10 @@ export class GithubSyncService {
 
       // Create target path folder page
       const title = this.titleFromSegment(seg);
-      const empty = { type: 'doc', content: [{ type: 'paragraph', content: [] }] } as any;
+      const empty = {
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [] }],
+      } as any;
       const ydocBuf = createYdocFromJson(empty);
       const created = await this.pageRepo.insertPage({
         slugId: generateSlugId(),
@@ -433,7 +537,10 @@ export class GithubSyncService {
         content: empty,
         textContent: '',
         ydoc: ydocBuf,
-        position: await this.nextPagePosition(source.spaceId, parentId ?? undefined),
+        position: await this.nextPagePosition(
+          source.spaceId,
+          parentId ?? undefined,
+        ),
         parentPageId: parentId,
         spaceId: source.spaceId,
         creatorId: await this.getDefaultWorkspaceUserId(workspaceId),
@@ -442,7 +549,12 @@ export class GithubSyncService {
       });
 
       // Store mapping with special prefix to distinguish from repo folders
-      await this.upsertFolderMapping(source.id, `__target__${currentPath}`, title, created.id);
+      await this.upsertFolderMapping(
+        source.id,
+        `__target__${currentPath}`,
+        title,
+        created.id,
+      );
       parentId = created.id;
       cache.set(segCacheKey, parentId);
     }
@@ -454,7 +566,12 @@ export class GithubSyncService {
   /** Ensure folder chain pages exist for relDir (e.g., 'a/b'), return deepest folder pageId or null when relDir is ''. */
   private async ensureFolderChain(
     workspaceId: string,
-    source: { id: string; spaceId: string; rootPageId: string | null; targetPath?: string },
+    source: {
+      id: string;
+      spaceId: string;
+      rootPageId: string | null;
+      targetPath?: string;
+    },
     relDir: string,
     cache: Map<string, string | null>,
   ): Promise<string | null> {
@@ -471,7 +588,9 @@ export class GithubSyncService {
     if (!relDir) return baseParentId;
 
     // Use targetPath as prefix in cache key to avoid conflicts
-    const cacheKey = source.targetPath ? `${source.targetPath}/${relDir}` : relDir;
+    const cacheKey = source.targetPath
+      ? `${source.targetPath}/${relDir}`
+      : relDir;
     if (cache.has(cacheKey)) return cache.get(cacheKey)!;
 
     const segments = relDir.split('/');
@@ -496,7 +615,10 @@ export class GithubSyncService {
 
       // Create a placeholder folder page
       const title = this.titleFromSegment(seg);
-      const empty = { type: 'doc', content: [{ type: 'paragraph', content: [] }] } as any;
+      const empty = {
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [] }],
+      } as any;
       const ydocBuf = createYdocFromJson(empty);
       const created = await this.pageRepo.insertPage({
         slugId: generateSlugId(),
@@ -504,7 +626,10 @@ export class GithubSyncService {
         content: empty,
         textContent: '',
         ydoc: ydocBuf,
-        position: await this.nextPagePosition(source.spaceId, parentId ?? undefined),
+        position: await this.nextPagePosition(
+          source.spaceId,
+          parentId ?? undefined,
+        ),
         parentPageId: parentId,
         spaceId: source.spaceId,
         creatorId: await this.getDefaultWorkspaceUserId(workspaceId),
@@ -526,7 +651,12 @@ export class GithubSyncService {
     return s.charAt(0).toUpperCase() + s.slice(1);
   }
 
-  private async upsertFolderMapping(sourceId: string, dirPath: string, title: string | null, pageId: string) {
+  private async upsertFolderMapping(
+    sourceId: string,
+    dirPath: string,
+    title: string | null,
+    pageId: string,
+  ) {
     const pathKey = dirPath.endsWith('/') ? dirPath : `${dirPath}/`;
     const row = await this.db
       .selectFrom('githubFiles')
@@ -557,7 +687,9 @@ export class GithubSyncService {
     }
   }
 
-  private async getDefaultWorkspaceUserId(workspaceId: string): Promise<string | null> {
+  private async getDefaultWorkspaceUserId(
+    workspaceId: string,
+  ): Promise<string | null> {
     const row = await this.db
       .selectFrom('users')
       .select(['id'])
@@ -616,10 +748,14 @@ export class GithubSyncService {
       .limit(1);
 
     if (parentPageId) {
-      const last = await lastBase.where('parentPageId', '=', parentPageId).executeTakeFirst();
+      const last = await lastBase
+        .where('parentPageId', '=', parentPageId)
+        .executeTakeFirst();
       return generateJitteredKeyBetween(last?.position ?? null, null);
     } else {
-      const last = await lastBase.where('parentPageId', 'is', null).executeTakeFirst();
+      const last = await lastBase
+        .where('parentPageId', 'is', null)
+        .executeTakeFirst();
       return generateJitteredKeyBetween(last?.position ?? null, null);
     }
   }
@@ -645,8 +781,12 @@ export class GithubSyncService {
     const filesJson = payload?.commits
       ? {
           added: [...new Set(payload.commits.flatMap((c) => c.added || []))],
-          modified: [...new Set(payload.commits.flatMap((c) => c.modified || []))],
-          removed: [...new Set(payload.commits.flatMap((c) => c.removed || []))],
+          modified: [
+            ...new Set(payload.commits.flatMap((c) => c.modified || [])),
+          ],
+          removed: [
+            ...new Set(payload.commits.flatMap((c) => c.removed || [])),
+          ],
         }
       : null;
 
@@ -678,7 +818,7 @@ export class GithubSyncService {
       const refRaw = payload?.ref as string | undefined;
       const branch = refRaw?.startsWith('refs/heads/')
         ? refRaw.substring('refs/heads/'.length)
-        : (refRaw || '');
+        : refRaw || '';
 
       const sources = await this.db
         .selectFrom('githubSources')
@@ -696,12 +836,22 @@ export class GithubSyncService {
 
       // Use Compare API to get robust change list
       // Use installation token from the first source's installation (assume same in practice)
-      const token = await this.gh.getInstallationToken(sources[0].githubInstallationId);
+      const token = await this.gh.getInstallationToken(
+        sources[0].githubInstallationId,
+      );
       const cmp = await this.gh.compare(owner, repo, before, after, token);
-      const files: Array<{ filename: string; status: string; previous_filename?: string }> = cmp?.files || [];
+      const files: Array<{
+        filename: string;
+        status: string;
+        previous_filename?: string;
+      }> = cmp?.files || [];
 
       for (const source of sources) {
-        const prefix = source.rootDir ? (source.rootDir.endsWith('/') ? source.rootDir : `${source.rootDir}/`) : '';
+        const prefix = source.rootDir
+          ? source.rootDir.endsWith('/')
+            ? source.rootDir
+            : `${source.rootDir}/`
+          : '';
 
         // cache folder pages per source for this webhook processing
         const folderCache = new Map<string, string | null>();
@@ -710,9 +860,14 @@ export class GithubSyncService {
           if (!/\.(md|mdx)$/i.test(fpath)) continue;
           if (prefix && !fpath.startsWith(prefix)) continue;
           const relPath = prefix ? fpath.slice(prefix.length) : fpath;
-          const relDir = relPath.includes('/') ? relPath.substring(0, relPath.lastIndexOf('/')) : '';
-          const fileName = relPath.includes('/') ? relPath.substring(relPath.lastIndexOf('/') + 1) : relPath;
-          const isIndexLike = /^(readme|index)\.(md|mdx)$/i.test(fileName) && relDir.length > 0;
+          const relDir = relPath.includes('/')
+            ? relPath.substring(0, relPath.lastIndexOf('/'))
+            : '';
+          const fileName = relPath.includes('/')
+            ? relPath.substring(relPath.lastIndexOf('/') + 1)
+            : relPath;
+          const isIndexLike =
+            /^(readme|index)\.(md|mdx)$/i.test(fileName) && relDir.length > 0;
 
           if (file.status === 'removed') {
             // mark mapping deleted & soft-delete page if exists
@@ -729,7 +884,9 @@ export class GithubSyncService {
               .where('path', '=', relPath)
               .execute();
             if (mapping?.pageId) {
-              const actor = await this.getDefaultWorkspaceUserId(source.workspaceId);
+              const actor = await this.getDefaultWorkspaceUserId(
+                source.workspaceId,
+              );
               if (actor) {
                 await this.pageRepo.removePage(mapping.pageId, actor);
               }
@@ -744,12 +901,16 @@ export class GithubSyncService {
               const prev = prefix
                 ? file.previous_filename.slice(prefix.length)
                 : file.previous_filename;
-            await this.db
-              .updateTable('githubFiles')
-              .set({ path: relPath, renamedFromPath: prev, updatedAt: new Date() })
-              .where('sourceId', '=', source.id)
-              .where('path', '=', prev)
-              .execute();
+              await this.db
+                .updateTable('githubFiles')
+                .set({
+                  path: relPath,
+                  renamedFromPath: prev,
+                  updatedAt: new Date(),
+                })
+                .where('sourceId', '=', source.id)
+                .where('path', '=', prev)
+                .execute();
             }
           }
 
@@ -762,7 +923,14 @@ export class GithubSyncService {
             .executeTakeFirst();
 
           // Force fetch on push to guarantee freshness even if ETag didn't change
-          const contentRes = await this.gh.getContent(owner, repo, fpath, source.ref, token, undefined);
+          const contentRes = await this.gh.getContent(
+            owner,
+            repo,
+            fpath,
+            source.ref,
+            token,
+            undefined,
+          );
           if (contentRes.status === 304) {
             await this.db
               .updateTable('githubFiles')
@@ -776,10 +944,19 @@ export class GithubSyncService {
 
           const body = contentRes.body;
           const base64 = body?.content as string;
-          const md = base64 ? Buffer.from(base64, 'base64').toString('utf-8') : '';
+          const md = base64
+            ? Buffer.from(base64, 'base64').toString('utf-8')
+            : '';
           const html = await this.mapper.markdownToHtml(md);
-          const pageDir = fpath.includes('/') ? fpath.substring(0, fpath.lastIndexOf('/')) : '';
-          const folderPageId = await this.ensureFolderChain(source.workspaceId, source, relDir, folderCache);
+          const pageDir = fpath.includes('/')
+            ? fpath.substring(0, fpath.lastIndexOf('/'))
+            : '';
+          const folderPageId = await this.ensureFolderChain(
+            source.workspaceId,
+            source,
+            relDir,
+            folderCache,
+          );
           const rewrite = await this.rewriter.rewriteHtml(html, {
             owner,
             repo,
@@ -788,11 +965,14 @@ export class GithubSyncService {
             pageDir,
             workspaceId: source.workspaceId,
             spaceId: source.spaceId,
-            pageId: isIndexLike ? (folderPageId ?? null) : (existing?.pageId ?? null),
+            pageId: isIndexLike
+              ? (folderPageId ?? null)
+              : (existing?.pageId ?? null),
             creatorId: await this.getDefaultWorkspaceUserId(source.workspaceId),
           });
           const prosemirrorJson = await this.mapper.htmlToTipTap(rewrite.html);
-          const { title: extractedTitle, prosemirrorJson: finalJson } = await this.mapper.extractTitleAndRemoveHeading(prosemirrorJson);
+          const { title: extractedTitle, prosemirrorJson: finalJson } =
+            await this.mapper.extractTitleAndRemoveHeading(prosemirrorJson);
           const title = extractedTitle;
           const ydocBuf = createYdocFromJson(finalJson);
           const textContent = jsonToText(finalJson);
@@ -804,14 +984,28 @@ export class GithubSyncService {
                 content: finalJson,
                 textContent,
                 ydoc: ydocBuf,
-                lastUpdatedById: await this.getDefaultWorkspaceUserId(source.workspaceId),
+                lastUpdatedById: await this.getDefaultWorkspaceUserId(
+                  source.workspaceId,
+                ),
                 isLocked: true,
               },
               folderPageId,
             );
             this.collab.closeDocumentConnections(`page.${folderPageId}`);
-            await this.upsertFolderMapping(source.id, relDir, title, folderPageId);
-            await this.upsertGithubFile(source.id, relPath, body.sha, contentRes.etag, title, folderPageId);
+            await this.upsertFolderMapping(
+              source.id,
+              relDir,
+              title,
+              folderPageId,
+            );
+            await this.upsertGithubFile(
+              source.id,
+              relPath,
+              body.sha,
+              contentRes.etag,
+              title,
+              folderPageId,
+            );
             continue;
           }
 
@@ -822,7 +1016,9 @@ export class GithubSyncService {
                 content: finalJson,
                 textContent,
                 ydoc: ydocBuf,
-                lastUpdatedById: await this.getDefaultWorkspaceUserId(source.workspaceId),
+                lastUpdatedById: await this.getDefaultWorkspaceUserId(
+                  source.workspaceId,
+                ),
                 isLocked: true,
               },
               existing.pageId,
@@ -831,11 +1027,17 @@ export class GithubSyncService {
             // Ensure correct parent (folder wrapper) in case page was created before folder hierarchy support
             await this.db
               .updateTable('pages')
-              .set({ parentPageId: folderPageId ?? source.rootPageId ?? null, updatedAt: new Date() })
+              .set({
+                parentPageId: folderPageId ?? source.rootPageId ?? null,
+                updatedAt: new Date(),
+              })
               .where('id', '=', existing.pageId)
               .execute();
           } else {
-            const position = await this.nextPagePosition(source.spaceId, source.rootPageId ?? undefined);
+            const position = await this.nextPagePosition(
+              source.spaceId,
+              source.rootPageId ?? undefined,
+            );
             const created = await this.pageRepo.insertPage({
               slugId: generateSlugId(),
               title,
@@ -845,13 +1047,24 @@ export class GithubSyncService {
               position,
               parentPageId: folderPageId ?? source.rootPageId ?? null,
               spaceId: source.spaceId,
-              creatorId: await this.getDefaultWorkspaceUserId(source.workspaceId),
+              creatorId: await this.getDefaultWorkspaceUserId(
+                source.workspaceId,
+              ),
               workspaceId: source.workspaceId,
-              lastUpdatedById: await this.getDefaultWorkspaceUserId(source.workspaceId),
+              lastUpdatedById: await this.getDefaultWorkspaceUserId(
+                source.workspaceId,
+              ),
               isLocked: true,
             });
             this.collab.closeDocumentConnections(`page.${created.id}`);
-            await this.upsertGithubFile(source.id, relPath, body.sha, contentRes.etag, title, created.id);
+            await this.upsertGithubFile(
+              source.id,
+              relPath,
+              body.sha,
+              contentRes.etag,
+              title,
+              created.id,
+            );
             if (rewrite.attachmentIds.length > 0) {
               await this.db
                 .updateTable('attachments')
@@ -862,7 +1075,14 @@ export class GithubSyncService {
             continue;
           }
 
-          await this.upsertGithubFile(source.id, relPath, body.sha, contentRes.etag, title, existing?.pageId ?? null);
+          await this.upsertGithubFile(
+            source.id,
+            relPath,
+            body.sha,
+            contentRes.etag,
+            title,
+            existing?.pageId ?? null,
+          );
         }
 
         // mark source updatedAt after processing its changes
@@ -881,14 +1101,23 @@ export class GithubSyncService {
     } catch (err) {
       await this.db
         .updateTable('githubWebhookEvents')
-        .set({ processed: true, ok: null, error: String(err), processedAt: new Date() } as any)
+        .set({
+          processed: true,
+          ok: null,
+          error: String(err),
+          processedAt: new Date(),
+        } as any)
         .where('deliveryId', '=', deliveryId)
         .execute();
       this.logger.error('handlePush error', err as any);
     }
   }
 
-  async updateSourceActive(workspaceId: string, sourceId: string, active?: boolean): Promise<boolean> {
+  async updateSourceActive(
+    workspaceId: string,
+    sourceId: string,
+    active?: boolean,
+  ): Promise<boolean> {
     const src = await this.db
       .selectFrom('githubSources')
       .select(['id'])
@@ -915,7 +1144,10 @@ export class GithubSyncService {
       .where('workspaceId', '=', workspaceId)
       .executeTakeFirst();
     if (!src) throw new NotFoundException('Source not found');
-    await this.db.deleteFrom('githubSources').where('id', '=', sourceId).execute();
+    await this.db
+      .deleteFrom('githubSources')
+      .where('id', '=', sourceId)
+      .execute();
   }
 
   async linkInstallation(workspaceId: string, dto: LinkInstallationDto) {
@@ -931,7 +1163,12 @@ export class GithubSyncService {
     if (existing) {
       await this.db
         .updateTable('githubInstallations')
-        .set({ accountLogin: dto.accountLogin, accountType: dto.accountType, appId, updatedAt: now })
+        .set({
+          accountLogin: dto.accountLogin,
+          accountType: dto.accountType,
+          appId,
+          updatedAt: now,
+        })
         .where('id', '=', existing.id)
         .execute();
       return { ok: true, id: existing.id };
@@ -981,7 +1218,9 @@ export class GithubSyncService {
 
     if (action === 'deleted' || action === 'suspend') {
       // Remove installation from all workspaces
-      this.logger.log(`Installation ${installationId} deleted/suspended, removing from ${existingInstalls.length} workspace(s)`);
+      this.logger.log(
+        `Installation ${installationId} deleted/suspended, removing from ${existingInstalls.length} workspace(s)`,
+      );
       await this.db
         .deleteFrom('githubInstallations')
         .where('installationId', '=', installationId)
@@ -993,7 +1232,9 @@ export class GithubSyncService {
       // If no existing installations, we can't auto-link to a workspace
       // User must manually link via the UI or we need to store pending installations
       if (existingInstalls.length === 0) {
-        this.logger.log(`New installation ${installationId} for ${accountLogin}, waiting for user to link workspace`);
+        this.logger.log(
+          `New installation ${installationId} for ${accountLogin}, waiting for user to link workspace`,
+        );
         return;
       }
 
@@ -1006,7 +1247,9 @@ export class GithubSyncService {
           .where('id', '=', existing.id)
           .execute();
       }
-      this.logger.log(`Installation ${installationId} updated in ${existingInstalls.length} workspace(s)`);
+      this.logger.log(
+        `Installation ${installationId} updated in ${existingInstalls.length} workspace(s)`,
+      );
     }
   }
 }

@@ -112,17 +112,21 @@ export const ColorSelector: FC<ColorSelectorProps> = ({
 
   const editorState = useEditorState({
     editor,
-    selector: ctx => {
+    selector: (ctx) => {
       if (!ctx.editor) {
         return null;
       }
 
       const activeColors: Record<string, boolean> = {};
       TEXT_COLORS.forEach(({ color }) => {
-        activeColors[`text_${color}`] = ctx.editor.isActive("textStyle", { color });
+        activeColors[`text_${color}`] = ctx.editor.isActive("textStyle", {
+          color,
+        });
       });
       HIGHLIGHT_COLORS.forEach(({ color }) => {
-        activeColors[`highlight_${color}`] = ctx.editor.isActive("highlight", { color });
+        activeColors[`highlight_${color}`] = ctx.editor.isActive("highlight", {
+          color,
+        });
       });
 
       return activeColors;
@@ -133,12 +137,12 @@ export const ColorSelector: FC<ColorSelectorProps> = ({
     return null;
   }
 
-  const activeColorItem = TEXT_COLORS.find(({ color }) =>
-    editorState[`text_${color}`]
+  const activeColorItem = TEXT_COLORS.find(
+    ({ color }) => editorState[`text_${color}`],
   );
 
-  const activeHighlightItem = HIGHLIGHT_COLORS.find(({ color }) =>
-    editorState[`highlight_${color}`]
+  const activeHighlightItem = HIGHLIGHT_COLORS.find(
+    ({ color }) => editorState[`highlight_${color}`],
   );
 
   return (
@@ -184,7 +188,11 @@ export const ColorSelector: FC<ColorSelectorProps> = ({
                   if (name === "Default") {
                     editor.commands.unsetColor();
                   } else {
-                    editor.chain().focus().setColor(color || "").run();
+                    editor
+                      .chain()
+                      .focus()
+                      .setColor(color || "")
+                      .run();
                   }
                   setIsOpen(false);
                 }}

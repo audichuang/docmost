@@ -14,14 +14,14 @@ i18n
   .init({
     fallbackLng: "en-US",
     debug: false,
-    load: 'currentOnly',
+    load: "currentOnly",
 
     interpolation: {
       escapeValue: false, // not needed for react as it escapes by default
     },
     react: {
       useSuspense: false,
-    }
+    },
   });
 
 export default i18n;

@@ -411,7 +411,10 @@ export default function PageEditor({
   // Connection timeout handling with cumulative time tracking
   useEffect(() => {
     // Start tracking time when connecting
-    if (remoteProvider?.status === WebSocketStatus.Connecting && !connectionStartTimeRef.current) {
+    if (
+      remoteProvider?.status === WebSocketStatus.Connecting &&
+      !connectionStartTimeRef.current
+    ) {
       connectionStartTimeRef.current = Date.now();
     }
 
@@ -428,7 +431,9 @@ export default function PageEditor({
 
         // Timeout after 10 seconds
         if (elapsed > 10000) {
-          console.error("[PageEditor] Collaboration service connection timed out (cumulative)");
+          console.error(
+            "[PageEditor] Collaboration service connection timed out (cumulative)",
+          );
           setConnectionError(true);
           connectionStartTimeRef.current = null;
         }
@@ -442,13 +447,15 @@ export default function PageEditor({
   if (connectionError) {
     return (
       <div>
-        <div style={{
-          padding: '12px 16px',
-          backgroundColor: '#fff4e6',
-          borderBottom: '1px solid #ffd8a8',
-          color: '#e67700',
-          fontSize: '14px',
-        }}>
+        <div
+          style={{
+            padding: "12px 16px",
+            backgroundColor: "#fff4e6",
+            borderBottom: "1px solid #ffd8a8",
+            color: "#e67700",
+            fontSize: "14px",
+          }}
+        >
           ⚠️ 無法連接協作服務，以唯讀模式顯示內容
         </div>
         <EditorProvider

@@ -15,7 +15,11 @@ export class StorageService {
     this.logger.debug(`File uploaded successfully. Path: ${filePath}`);
   }
 
-  async uploadStream(filePath: string, fileContent: Readable, options?: { recreateClient?: boolean }) {
+  async uploadStream(
+    filePath: string,
+    fileContent: Readable,
+    options?: { recreateClient?: boolean },
+  ) {
     await this.storageDriver.uploadStream(filePath, fileContent, options);
     this.logger.debug(`File uploaded successfully. Path: ${filePath}`);
   }
