@@ -6,13 +6,10 @@ import {
   Tooltip,
   rem,
   useComputedColorScheme,
+  useMantineTheme,
+  Box,
 } from "@mantine/core";
-import {
-  IconZoomIn,
-  IconZoomOut,
-  IconRefresh,
-  IconMaximize,
-} from "@tabler/icons-react";
+import { IconZoomIn, IconZoomOut, IconRefresh } from "@tabler/icons-react";
 import mermaid from "mermaid";
 import {
   TransformWrapper,
@@ -33,11 +30,13 @@ export function MermaidZoomModal({
   code,
 }: MermaidZoomModalProps) {
   const { t } = useTranslation();
+  const theme = useMantineTheme();
   const computedColorScheme = useComputedColorScheme();
   const [svg, setSvg] = useState<string>("");
   const [isPositioned, setIsPositioned] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const transformRef = useRef<ReactZoomPanPinchRef>(null);
+  const initialScaleRef = useRef<number>(1);
 
   // Configure Mermaid on theme change
   useEffect(() => {
@@ -76,57 +75,14 @@ export function MermaidZoomModal({
   // Keep a memoized SVG element string to avoid re-parsing unless svg changes
   const svgContent = useMemo(() => ({ __html: svg }), [svg]);
 
-  // Fit to screen handler
-  const handleFitToScreen = (animate: boolean = true) => {
-    if (!transformRef.current) return;
-
-    const svgEl = contentRef.current?.querySelector?.("svg");
-    if (!svgEl) return;
-
-    const wrapper = transformRef.current.instance.wrapperComponent;
-    if (!wrapper) return;
-
-    const containerWidth = wrapper.clientWidth;
-    const containerHeight = wrapper.clientHeight;
-
-    // Ensure container has valid dimensions
-    if (containerWidth === 0 || containerHeight === 0) return;
-
-    // Get SVG dimensions from viewBox or bounding box
-    let svgWidth = 0;
-    let svgHeight = 0;
-
-    const viewBox = svgEl.getAttribute("viewBox");
-    if (viewBox) {
-      const parts = viewBox.trim().split(/\s+/);
-      if (parts.length === 4) {
-        svgWidth = parseFloat(parts[2]);
-        svgHeight = parseFloat(parts[3]);
-      }
-    }
-
-    if (!svgWidth || !svgHeight || isNaN(svgWidth) || isNaN(svgHeight)) {
-      const bbox = svgEl.getBBox();
-      svgWidth = bbox.width;
-      svgHeight = bbox.height;
-    }
-
-    if (svgWidth > 0 && svgHeight > 0) {
-      const padding = 40;
-      const scaleX = (containerWidth - padding * 2) / svgWidth;
-      const scaleY = (containerHeight - padding * 2) / svgHeight;
-      const scale = Math.min(scaleX, scaleY, 3); // Cap at 3x
-
-      // Use animation only when manually triggered
-      transformRef.current.centerView(scale, animate ? 300 : 0);
-    }
-  };
-
-  // Auto-fit when SVG is ready and modal is opened
+  // Initialize diagram with proper scale (60% of viewport)
   useEffect(() => {
-    if (!opened || !svg) return;
+    if (!opened || !svg) {
+      setIsPositioned(false);
+      return;
+    }
 
-    // Wait for DOM to be ready, then fit to screen
+    // Wait for DOM to be ready, then calculate and apply scale
     const timeoutId = setTimeout(() => {
       const svgEl = contentRef.current?.querySelector?.("svg");
       if (!svgEl || !transformRef.current) {
@@ -140,14 +96,28 @@ export function MermaidZoomModal({
         return;
       }
 
-      // Get actual rendered SVG dimensions
-      const svgRect = svgEl.getBoundingClientRect();
-      const svgWidth = svgRect.width;
-      const svgHeight = svgRect.height;
-
       // Get container dimensions
       const containerWidth = wrapper.clientWidth;
       const containerHeight = wrapper.clientHeight;
+
+      // Get SVG dimensions from viewBox or bounding box
+      let svgWidth = 0;
+      let svgHeight = 0;
+
+      const viewBox = svgEl.getAttribute("viewBox");
+      if (viewBox) {
+        const parts = viewBox.trim().split(/\s+/);
+        if (parts.length === 4) {
+          svgWidth = parseFloat(parts[2]);
+          svgHeight = parseFloat(parts[3]);
+        }
+      }
+
+      if (!svgWidth || !svgHeight || isNaN(svgWidth) || isNaN(svgHeight)) {
+        const bbox = svgEl.getBBox();
+        svgWidth = bbox.width;
+        svgHeight = bbox.height;
+      }
 
       if (
         svgWidth > 0 &&
@@ -155,15 +125,23 @@ export function MermaidZoomModal({
         containerWidth > 0 &&
         containerHeight > 0
       ) {
+        // Calculate scale to fit diagram in container
         const padding = 40;
         const scaleX = (containerWidth - padding * 2) / svgWidth;
         const scaleY = (containerHeight - padding * 2) / svgHeight;
 
-        // Ensure we don't shrink below original size, and cap at 3x
-        const scale = Math.max(1, Math.min(scaleX, scaleY, 3));
+        // Get the scale that fits the diagram completely in the container
+        const fitScale = Math.min(scaleX, scaleY);
 
-        // Apply the scale
-        transformRef.current.centerView(scale, 0);
+        // Use 95% of fit scale to make diagram large
+        // Ensure minimum 1.0x (original size) and maximum 3x
+        const initialScale = Math.max(Math.min(fitScale * 0.95, 3), 1.0);
+
+        // Save initial scale for reset
+        initialScaleRef.current = initialScale;
+
+        // Apply the scale and center
+        transformRef.current.centerView(initialScale, 0);
       }
 
       // Show content with fade-in
@@ -193,106 +171,144 @@ export function MermaidZoomModal({
         maxScale={10}
         limitToBounds={false}
         centerOnInit={false}
-        wheel={{ step: 0.15 }}
-        panning={{ velocityDisabled: true }}
+        wheel={{ step: 0.2 }}
+        panning={{ velocityDisabled: false }}
         doubleClick={{ disabled: true }}
       >
-        {({ zoomIn, zoomOut, resetTransform }) => (
-          <div
+        {({ zoomIn, zoomOut }) => (
+          <Box
             style={{
-              display: "flex",
-              flexDirection: "column",
               height: "100%",
               width: "100%",
+              overflow: "hidden",
+              position: "relative",
+              background:
+                computedColorScheme === "dark"
+                  ? theme.colors.dark[7]
+                  : "#fafafa",
             }}
           >
-            <Group
-              justify="center"
-              gap="md"
-              p="md"
-              style={{
-                flexShrink: 0,
-                background:
-                  computedColorScheme === "dark"
-                    ? "rgba(26, 27, 30, 0.95)"
-                    : "rgba(255, 255, 255, 0.95)",
-                backdropFilter: "blur(10px)",
-                borderBottom:
-                  computedColorScheme === "dark"
-                    ? "1px solid rgba(255, 255, 255, 0.1)"
-                    : "1px solid rgba(0, 0, 0, 0.1)",
-                boxShadow: "0 2px 8px rgba(0, 0, 0, 0.1)",
-              }}
-            >
-              <Tooltip label={t("Fit to screen")} withArrow position="bottom">
-                <ActionIcon
-                  variant="filled"
-                  color="blue"
-                  size="lg"
-                  onClick={() => handleFitToScreen()}
-                  aria-label="Fit to screen"
-                >
-                  <IconMaximize style={{ width: rem(20), height: rem(20) }} />
-                </ActionIcon>
-              </Tooltip>
-              <Tooltip label={t("Zoom in")} withArrow position="bottom">
-                <ActionIcon
-                  variant="default"
-                  size="lg"
-                  onClick={() => zoomIn()}
-                  aria-label="Zoom in"
-                >
-                  <IconZoomIn style={{ width: rem(20), height: rem(20) }} />
-                </ActionIcon>
-              </Tooltip>
-              <Tooltip label={t("Zoom out")} withArrow position="bottom">
-                <ActionIcon
-                  variant="default"
-                  size="lg"
-                  onClick={() => zoomOut()}
-                  aria-label="Zoom out"
-                >
-                  <IconZoomOut style={{ width: rem(20), height: rem(20) }} />
-                </ActionIcon>
-              </Tooltip>
-              <Tooltip label={t("Reset")} withArrow position="bottom">
-                <ActionIcon
-                  variant="default"
-                  size="lg"
-                  onClick={() => resetTransform()}
-                  aria-label="Reset zoom"
-                >
-                  <IconRefresh style={{ width: rem(20), height: rem(20) }} />
-                </ActionIcon>
-              </Tooltip>
-            </Group>
-            <div
-              style={{
-                flex: 1,
-                overflow: "hidden",
-                position: "relative",
+            <TransformComponent
+              wrapperStyle={{
                 width: "100%",
                 height: "100%",
               }}
             >
-              <TransformComponent
-                wrapperStyle={{
-                  width: "100%",
-                  height: "100%",
+              <div
+                ref={contentRef}
+                dangerouslySetInnerHTML={svgContent}
+                style={{
+                  display: "inline-block",
+                  opacity: isPositioned ? 1 : 0,
+                  transition: "opacity 250ms ease-in",
+                }}
+              />
+            </TransformComponent>
+
+            {/* Floating toolbar at bottom center */}
+            <Box
+              style={{
+                position: "absolute",
+                bottom: "24px",
+                left: "50%",
+                transform: "translateX(-50%)",
+                zIndex: 1000,
+              }}
+            >
+              <Group
+                gap="xs"
+                style={{
+                  background:
+                    computedColorScheme === "dark"
+                      ? "rgba(0, 0, 0, 0.75)"
+                      : "rgba(255, 255, 255, 0.9)",
+                  backdropFilter: "blur(12px)",
+                  padding: "8px 12px",
+                  borderRadius: "24px",
+                  boxShadow:
+                    computedColorScheme === "dark"
+                      ? "0 8px 32px rgba(0, 0, 0, 0.4)"
+                      : "0 4px 24px rgba(0, 0, 0, 0.12)",
+                  border: `1px solid ${
+                    computedColorScheme === "dark"
+                      ? "rgba(255, 255, 255, 0.1)"
+                      : "rgba(0, 0, 0, 0.08)"
+                  }`,
                 }}
               >
-                <div
-                  ref={contentRef}
-                  dangerouslySetInnerHTML={svgContent}
-                  style={{
-                    display: "inline-block",
-                    opacity: isPositioned ? 1 : 0,
-                    transition: "opacity 250ms ease-in",
-                  }}
-                />
-              </TransformComponent>
-            </div>
-          </div>
+                <Tooltip label={t("Zoom in")} withArrow position="top">
+                  <ActionIcon
+                    variant="subtle"
+                    color={computedColorScheme === "dark" ? "gray" : "dark"}
+                    size="lg"
+                    radius="xl"
+                    onClick={() => zoomIn()}
+                    aria-label="Zoom in"
+                    style={{
+                      transition: "all 0.2s ease",
+                      "&:hover": {
+                        background:
+                          computedColorScheme === "dark"
+                            ? "rgba(255, 255, 255, 0.1)"
+                            : "rgba(0, 0, 0, 0.05)",
+                      },
+                    }}
+                  >
+                    <IconZoomIn style={{ width: rem(20), height: rem(20) }} />
+                  </ActionIcon>
+                </Tooltip>
+                <Tooltip label={t("Zoom out")} withArrow position="top">
+                  <ActionIcon
+                    variant="subtle"
+                    color={computedColorScheme === "dark" ? "gray" : "dark"}
+                    size="lg"
+                    radius="xl"
+                    onClick={() => zoomOut()}
+                    aria-label="Zoom out"
+                    style={{
+                      transition: "all 0.2s ease",
+                      "&:hover": {
+                        background:
+                          computedColorScheme === "dark"
+                            ? "rgba(255, 255, 255, 0.1)"
+                            : "rgba(0, 0, 0, 0.05)",
+                      },
+                    }}
+                  >
+                    <IconZoomOut style={{ width: rem(20), height: rem(20) }} />
+                  </ActionIcon>
+                </Tooltip>
+                <Tooltip label={t("Reset")} withArrow position="top">
+                  <ActionIcon
+                    variant="subtle"
+                    color={computedColorScheme === "dark" ? "gray" : "dark"}
+                    size="lg"
+                    radius="xl"
+                    onClick={() => {
+                      if (transformRef.current) {
+                        transformRef.current.centerView(
+                          initialScaleRef.current,
+                          300,
+                        );
+                      }
+                    }}
+                    aria-label="Reset"
+                    style={{
+                      transition: "all 0.2s ease",
+                      "&:hover": {
+                        background:
+                          computedColorScheme === "dark"
+                            ? "rgba(255, 255, 255, 0.1)"
+                            : "rgba(0, 0, 0, 0.05)",
+                      },
+                    }}
+                  >
+                    <IconRefresh style={{ width: rem(20), height: rem(20) }} />
+                  </ActionIcon>
+                </Tooltip>
+              </Group>
+            </Box>
+          </Box>
         )}
       </TransformWrapper>
     </Modal>
