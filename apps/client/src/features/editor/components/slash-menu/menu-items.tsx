@@ -25,12 +25,16 @@ import {
   CommandProps,
   SlashMenuGroupedItemsType,
 } from "@/features/editor/components/slash-menu/types";
+import { sanitizeUrl } from "@docmost/editor-ext";
 import { uploadImageAction } from "@/features/editor/components/image/upload-image-action.tsx";
 import { uploadVideoAction } from "@/features/editor/components/video/upload-video-action.tsx";
 import { uploadAttachmentAction } from "@/features/editor/components/attachment/upload-attachment-action.tsx";
 import IconExcalidraw from "@/components/icons/icon-excalidraw";
 import IconMermaid from "@/components/icons/icon-mermaid";
 import IconDrawio from "@/components/icons/icon-drawio";
+import { modals } from "@mantine/modals";
+import { Button, Group, Stack, TextInput } from "@mantine/core";
+import { useEffect, useRef, useState } from "react";
 import {
   AirtableIcon,
   FigmaIcon,
@@ -178,6 +182,97 @@ const CommandGroups: SlashMenuGroupedItemsType = {
           }
         };
         input.click();
+      },
+    },
+    {
+      title: "Image from URL",
+      description: "Insert an external image link (no upload)",
+      searchTerms: ["image", "photo", "url", "link"],
+      icon: IconPhoto,
+      command: ({ editor, range }) => {
+        editor.chain().focus().deleteRange(range).run();
+
+        const ModalContent = ({
+          onSubmit,
+        }: {
+          onSubmit: (url: string) => void;
+        }) => {
+          const [url, setUrl] = useState("");
+          const [error, setError] = useState<string | undefined>(undefined);
+          const inputRef = useRef<HTMLInputElement>(null);
+
+          useEffect(() => {
+            inputRef.current?.focus();
+          }, []);
+
+          const handleConfirm = () => {
+            const trimmed = url.trim();
+            if (!trimmed) {
+              setError("Please enter an image URL");
+              return;
+            }
+            const safe = sanitizeUrl(trimmed);
+            if (!safe) {
+              setError("Invalid or unsafe URL");
+              return;
+            }
+            setError(undefined);
+            onSubmit(safe);
+          };
+
+          return (
+            <Stack gap="sm">
+              <TextInput
+                ref={inputRef}
+                placeholder="https://example.com/image.png"
+                label="Image URL"
+                value={url}
+                error={error}
+                onChange={(e) => setUrl(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleConfirm();
+                  }
+                }}
+              />
+              <Group justify="flex-end" mt="xs">
+                <Button variant="default" onClick={() => modals.closeAll()}>
+                  Cancel
+                </Button>
+                <Button onClick={handleConfirm}>Insert</Button>
+              </Group>
+            </Stack>
+          );
+        };
+
+        const id = modals.open({
+          title: "Insert image from URL",
+          centered: true,
+          children: (
+            <ModalContent
+              onSubmit={(safe) => {
+                try {
+                  const fileName = (() => {
+                    try {
+                      const u = new URL(safe);
+                      const base = u.pathname.split("/").pop() || "";
+                      return decodeURIComponent(base);
+                    } catch {
+                      return undefined;
+                    }
+                  })();
+
+                  editor.commands.setImage({ src: safe, title: fileName });
+                  modals.close(id);
+                } catch {
+                  // silently ignore invalid URL parsing
+                  modals.close(id);
+                }
+              }}
+            />
+          ),
+        });
       },
     },
     {
