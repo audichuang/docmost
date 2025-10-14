@@ -75,7 +75,7 @@ export function MermaidZoomModal({
   // Keep a memoized SVG element string to avoid re-parsing unless svg changes
   const svgContent = useMemo(() => ({ __html: svg }), [svg]);
 
-  // Initialize diagram with proper scale (60% of viewport)
+  // Initialize diagram with proper scale (90% of viewport)
   useEffect(() => {
     if (!opened || !svg) {
       setIsPositioned(false);
@@ -96,9 +96,10 @@ export function MermaidZoomModal({
         return;
       }
 
-      // Get container dimensions
-      const containerWidth = wrapper.clientWidth;
-      const containerHeight = wrapper.clientHeight;
+      // Use viewport dimensions instead of container dimensions
+      // This ensures the diagram scales based on actual screen size
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
 
       // Get SVG dimensions from viewBox or bounding box
       let svgWidth = 0;
@@ -122,20 +123,20 @@ export function MermaidZoomModal({
       if (
         svgWidth > 0 &&
         svgHeight > 0 &&
-        containerWidth > 0 &&
-        containerHeight > 0
+        viewportWidth > 0 &&
+        viewportHeight > 0
       ) {
-        // Calculate scale to fit diagram in container
-        const padding = 40;
-        const scaleX = (containerWidth - padding * 2) / svgWidth;
-        const scaleY = (containerHeight - padding * 2) / svgHeight;
+        // Calculate scale to make diagram occupy 90% of viewport
+        // Using viewport dimensions instead of container to ensure proper sizing
+        const scaleX = (viewportWidth * 0.9) / svgWidth;
+        const scaleY = (viewportHeight * 0.9) / svgHeight;
 
-        // Get the scale that fits the diagram completely in the container
-        const fitScale = Math.min(scaleX, scaleY);
+        // Use the smaller scale to ensure diagram fits completely
+        // Set minimum scale to 3.0x to ensure large diagrams are prominent and readable
+        // Maximum 10x to prevent over-scaling of small diagrams
+        const fitScale = Math.min(scaleX, scaleY, 10);
+        const initialScale = Math.max(fitScale, 3.0);
 
-        // Use 95% of fit scale to make diagram large
-        // Ensure minimum 1.0x (original size) and maximum 3x
-        const initialScale = Math.max(Math.min(fitScale * 0.95, 3), 1.0);
 
         // Save initial scale for reset
         initialScaleRef.current = initialScale;
