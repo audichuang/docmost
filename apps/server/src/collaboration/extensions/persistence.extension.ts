@@ -64,6 +64,15 @@ export class PersistenceExtension implements Extension {
       const dbState = new Uint8Array(page.ydoc);
       Y.applyUpdate(doc, dbState);
 
+      // Skip R2 token transformation for GitHub-managed (locked) pages
+      // Locked pages use local attachments (/api/files/), not R2 storage
+      if (page.isLocked) {
+        this.logger.debug(
+          `Page ${pageId} is locked (GitHub-managed), skipping R2 token transformation`,
+        );
+        return doc;
+      }
+
       // Transform R2 image URLs to add tokens
       try {
         const tiptapJson = TiptapTransformer.fromYdoc(doc, 'default');
@@ -93,6 +102,20 @@ export class PersistenceExtension implements Extension {
     // if no ydoc state in db convert json in page.content to Ydoc.
     if (page.content) {
       this.logger.debug(`converting json to ydoc: ${pageId}`);
+
+      // Skip R2 token transformation for GitHub-managed (locked) pages
+      if (page.isLocked) {
+        this.logger.debug(
+          `Page ${pageId} is locked (GitHub-managed), skipping R2 token transformation in content conversion`,
+        );
+        const ydoc = TiptapTransformer.toYdoc(
+          page.content,
+          'default',
+          tiptapExtensions,
+        );
+        Y.encodeStateAsUpdate(ydoc);
+        return ydoc;
+      }
 
       // Transform content to add R2 image tokens before converting to ydoc
       let transformedContent = page.content;
