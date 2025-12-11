@@ -6,6 +6,7 @@ import classes from "./code-block.module.css";
 import { useTranslation } from "react-i18next";
 import { useComputedColorScheme } from "@mantine/core";
 import MermaidZoomModal from "@/features/editor/components/code-block/mermaid-zoom-modal";
+import DOMPurify from "dompurify";
 
 interface MermaidViewProps {
   props: NodeViewProps;
@@ -39,7 +40,7 @@ export default function MermaidView({ props }: MermaidViewProps) {
         .catch((err) => {
           if (props.editor.isEditable) {
             setPreview(
-              `<div class="${classes.error}">${t("Mermaid diagram error:")} ${err}</div>`,
+              `<div class="${classes.error}">${t("Mermaid diagram error:")} ${DOMPurify.sanitize(err)}</div>`,
             );
           } else {
             setPreview(
