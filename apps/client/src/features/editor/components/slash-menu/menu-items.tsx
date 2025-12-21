@@ -1,5 +1,6 @@
 import {
   IconBlockquote,
+  IconBrain,
   IconCaretRightFilled,
   IconCheckbox,
   IconCode,
@@ -425,6 +426,14 @@ const CommandGroups: SlashMenuGroupedItemsType = {
       icon: IconDrawio,
       command: ({ editor, range }: CommandProps) =>
         editor.chain().focus().deleteRange(range).setDrawio().run(),
+    },
+    {
+      title: "AI Diagram",
+      description: "Create diagrams with AI assistance",
+      searchTerms: ["ai", "diagram", "drawio", "flowchart", "smart", "generate"],
+      icon: IconBrain,
+      command: ({ editor, range }: CommandProps) =>
+        editor.chain().focus().deleteRange(range).setAiDrawio().run(),
     },
     {
       title: "Excalidraw diagram",

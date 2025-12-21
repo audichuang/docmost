@@ -108,12 +108,12 @@ export const Excalidraw = Node.create<ExcalidrawOptions>({
     return {
       setExcalidraw:
         (attrs: ExcalidrawAttributes) =>
-        ({ commands }) => {
-          return commands.insertContent({
-            type: 'excalidraw',
-            attrs: attrs,
-          });
-        },
+          ({ commands }) => {
+            return commands.insertContent({
+              type: 'excalidraw',
+              attrs: attrs,
+            });
+          },
     };
   },
 

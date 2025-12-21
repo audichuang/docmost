@@ -37,7 +37,7 @@ export class PersistenceExtension implements Extension {
     private eventEmitter: EventEmitter2,
     @InjectQueue(QueueName.GENERAL_QUEUE) private generalQueue: Queue,
     private readonly contentTransformer: ContentTransformerService,
-  ) {}
+  ) { }
 
   async onLoadDocument(data: onLoadDocumentPayload) {
     const { documentName, document } = data;
@@ -64,78 +64,18 @@ export class PersistenceExtension implements Extension {
       const dbState = new Uint8Array(page.ydoc);
       Y.applyUpdate(doc, dbState);
 
-      // Skip R2 token transformation for GitHub-managed (locked) pages
-      // Locked pages use local attachments (/api/files/), not R2 storage
-      if (page.isLocked) {
-        this.logger.debug(
-          `Page ${pageId} is locked (GitHub-managed), skipping R2 token transformation`,
-        );
-        return doc;
-      }
-
-      // Transform R2 image URLs to add tokens
-      try {
-        const tiptapJson = TiptapTransformer.fromYdoc(doc, 'default');
-        const jsonStr = JSON.stringify(tiptapJson);
-        const transformedStr =
-          await this.contentTransformer.transformContent(jsonStr);
-        const transformedJson = JSON.parse(transformedStr);
-
-        const transformedDoc = TiptapTransformer.toYdoc(
-          transformedJson,
-          'default',
-          tiptapExtensions,
-        );
-
-        this.logger.debug(
-          `[Collab] R2 token transformation applied to ydoc for page: ${pageId}`,
-        );
-        return transformedDoc;
-      } catch (error) {
-        this.logger.warn(
-          `[Collab] Failed to transform R2 tokens in ydoc: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        );
-        return doc;
-      }
+      // IMPORTANT: Do NOT create a new Y.Doc via TiptapTransformer.toYdoc()
+      // Creating a new Y.Doc changes the clientID which causes node duplication
+      // when merging with the frontend Y.Doc. Just return the original doc.
+      return doc;
     }
 
     // if no ydoc state in db convert json in page.content to Ydoc.
     if (page.content) {
       this.logger.debug(`converting json to ydoc: ${pageId}`);
 
-      // Skip R2 token transformation for GitHub-managed (locked) pages
-      if (page.isLocked) {
-        this.logger.debug(
-          `Page ${pageId} is locked (GitHub-managed), skipping R2 token transformation in content conversion`,
-        );
-        const ydoc = TiptapTransformer.toYdoc(
-          page.content,
-          'default',
-          tiptapExtensions,
-        );
-        Y.encodeStateAsUpdate(ydoc);
-        return ydoc;
-      }
-
-      // Transform content to add R2 image tokens before converting to ydoc
-      let transformedContent = page.content;
-      try {
-        const contentStr = JSON.stringify(page.content);
-        const transformedStr =
-          await this.contentTransformer.transformContent(contentStr);
-        transformedContent = JSON.parse(transformedStr);
-        this.logger.debug(
-          `[Collab] R2 token transformation applied for page: ${pageId}`,
-        );
-      } catch (error) {
-        this.logger.warn(
-          `[Collab] Failed to transform R2 tokens: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        );
-        // Continue with original content if transformation fails
-      }
-
       const ydoc = TiptapTransformer.toYdoc(
-        transformedContent,
+        page.content,
         'default',
         tiptapExtensions,
       );

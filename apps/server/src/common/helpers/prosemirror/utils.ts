@@ -80,6 +80,7 @@ export function isAttachmentNode(nodeType: string) {
     'video',
     'excalidraw',
     'drawio',
+    'aiDrawio',
   ];
   return attachmentNodeTypes.includes(nodeType);
 }

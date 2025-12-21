@@ -189,6 +189,10 @@ export class EnvironmentService {
     return this.configService.get<string>('DRAWIO_URL');
   }
 
+  getNextAiDrawioUrl(): string {
+    return this.configService.get<string>('NEXT_AI_DRAWIO_URL');
+  }
+
   isCloud(): boolean {
     const cloudConfig = this.configService
       .get<string>('CLOUD', 'false')

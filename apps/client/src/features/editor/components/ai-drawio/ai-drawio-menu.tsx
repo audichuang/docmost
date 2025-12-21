@@ -13,18 +13,19 @@ import {
 } from "@/features/editor/components/table/types/types.ts";
 import { NodeWidthResize } from "@/features/editor/components/common/node-width-resize.tsx";
 import { ActionIcon, Tooltip } from "@mantine/core";
-import { IconBrain } from "@tabler/icons-react";
+import { IconArrowBack } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
 
-export function DrawioMenu({ editor }: EditorMenuProps) {
+export function AiDrawioMenu({ editor }: EditorMenuProps) {
   const { t } = useTranslation();
+
   const shouldShow = useCallback(
     ({ state }: ShouldShowProps) => {
       if (!state) {
         return false;
       }
 
-      return editor.isActive("drawio") && editor.getAttributes("drawio")?.src;
+      return editor.isActive("aiDrawio") && editor.getAttributes("aiDrawio")?.src;
     },
     [editor],
   );
@@ -36,17 +37,17 @@ export function DrawioMenu({ editor }: EditorMenuProps) {
         return null;
       }
 
-      const drawioAttr = ctx.editor.getAttributes("drawio");
+      const aiDrawioAttr = ctx.editor.getAttributes("aiDrawio");
       return {
-        isDrawio: ctx.editor.isActive("drawio"),
-        width: drawioAttr?.width ? parseInt(drawioAttr.width) : null,
+        isAiDrawio: ctx.editor.isActive("aiDrawio"),
+        width: aiDrawioAttr?.width ? parseInt(aiDrawioAttr.width) : null,
       };
     },
   });
 
   const getReferenceClientRect = useCallback(() => {
     const { selection } = editor.state;
-    const predicate = (node: PMNode) => node.type.name === "drawio";
+    const predicate = (node: PMNode) => node.type.name === "aiDrawio";
     const parent = findParentNode(predicate)(selection);
 
     if (parent) {
@@ -59,14 +60,14 @@ export function DrawioMenu({ editor }: EditorMenuProps) {
 
   const onWidthChange = useCallback(
     (value: number) => {
-      editor.commands.updateAttributes("drawio", { width: `${value}%` });
+      editor.commands.updateAttributes("aiDrawio", { width: `${value}%` });
     },
     [editor],
   );
 
-  const convertToAiDrawio = useCallback(() => {
+  const convertToDrawio = useCallback(() => {
     const { selection } = editor.state;
-    const predicate = (node: PMNode) => node.type.name === "drawio";
+    const predicate = (node: PMNode) => node.type.name === "aiDrawio";
     const parent = findParentNode(predicate)(selection);
 
     if (parent) {
@@ -74,18 +75,14 @@ export function DrawioMenu({ editor }: EditorMenuProps) {
       editor
         .chain()
         .focus()
-        .deleteRange({
-          from: parent.pos,
-          to: parent.pos + parent.node.nodeSize,
-        })
+        .deleteRange({ from: parent.pos, to: parent.pos + parent.node.nodeSize })
         .insertContent({
-          type: "aiDrawio",
+          type: "drawio",
           attrs: {
             src: attrs.src,
             title: attrs.title,
             width: attrs.width,
             size: attrs.size,
-            align: attrs.align,
             attachmentId: attrs.attachmentId,
           },
         })
@@ -96,7 +93,7 @@ export function DrawioMenu({ editor }: EditorMenuProps) {
   return (
     <BaseBubbleMenu
       editor={editor}
-      pluginKey={`drawio-menu`}
+      pluginKey={`ai-drawio-menu`}
       updateDelay={0}
       tippyOptions={{
         getReferenceClientRect,
@@ -115,19 +112,19 @@ export function DrawioMenu({ editor }: EditorMenuProps) {
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          gap: "8px",
+          gap: 8,
         }}
       >
         {editorState?.width && (
           <NodeWidthResize onChange={onWidthChange} value={editorState.width} />
         )}
-        <Tooltip label={t("Open with AI Editor")} position="top">
+        <Tooltip label={t("Convert to basic Draw.io")}>
           <ActionIcon
-            onClick={convertToAiDrawio}
+            onClick={convertToDrawio}
             variant="default"
             size="sm"
           >
-            <IconBrain size={16} />
+            <IconArrowBack size={16} />
           </ActionIcon>
         </Tooltip>
       </div>
@@ -135,4 +132,4 @@ export function DrawioMenu({ editor }: EditorMenuProps) {
   );
 }
 
-export default DrawioMenu;
+export default AiDrawioMenu;

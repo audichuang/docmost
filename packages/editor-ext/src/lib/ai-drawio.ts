@@ -1,29 +1,31 @@
 import { Node, mergeAttributes } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 
-export interface DrawioOptions {
+export interface AiDrawioOptions {
   HTMLAttributes: Record<string, any>;
   view: any;
 }
-export interface DrawioAttributes {
+export interface AiDrawioAttributes {
   src?: string;
   title?: string;
   size?: number;
   width?: string;
   align?: string;
   attachmentId?: string;
+  xmlContent?: string;
+  chatHistory?: string;
 }
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
-    drawio: {
-      setDrawio: (attributes?: DrawioAttributes) => ReturnType;
+    aiDrawio: {
+      setAiDrawio: (attributes?: AiDrawioAttributes) => ReturnType;
     };
   }
 }
 
-export const Drawio = Node.create<DrawioOptions>({
-  name: "drawio",
+export const AiDrawio = Node.create<AiDrawioOptions>({
+  name: "aiDrawio",
   inline: false,
   group: "block",
   isolating: true,
@@ -50,36 +52,50 @@ export const Drawio = Node.create<DrawioOptions>({
       title: {
         default: undefined,
         parseHTML: (element) => element.getAttribute('data-title'),
-        renderHTML: (attributes: DrawioAttributes) => ({
+        renderHTML: (attributes: AiDrawioAttributes) => ({
           'data-title': attributes.title,
         }),
       },
       width: {
         default: '100%',
         parseHTML: (element) => element.getAttribute('data-width'),
-        renderHTML: (attributes: DrawioAttributes) => ({
+        renderHTML: (attributes: AiDrawioAttributes) => ({
           'data-width': attributes.width,
         }),
       },
       size: {
         default: null,
         parseHTML: (element) => element.getAttribute('data-size'),
-        renderHTML: (attributes: DrawioAttributes) => ({
+        renderHTML: (attributes: AiDrawioAttributes) => ({
           'data-size': attributes.size,
         }),
       },
       align: {
         default: 'center',
         parseHTML: (element) => element.getAttribute('data-align'),
-        renderHTML: (attributes: DrawioAttributes) => ({
+        renderHTML: (attributes: AiDrawioAttributes) => ({
           'data-align': attributes.align,
         }),
       },
       attachmentId: {
         default: undefined,
         parseHTML: (element) => element.getAttribute('data-attachment-id'),
-        renderHTML: (attributes: DrawioAttributes) => ({
+        renderHTML: (attributes: AiDrawioAttributes) => ({
           'data-attachment-id': attributes.attachmentId,
+        }),
+      },
+      xmlContent: {
+        default: '',
+        parseHTML: (element) => element.getAttribute('data-xml-content'),
+        renderHTML: (attributes: AiDrawioAttributes) => ({
+          'data-xml-content': attributes.xmlContent,
+        }),
+      },
+      chatHistory: {
+        default: '',
+        parseHTML: (element) => element.getAttribute('data-chat-history'),
+        renderHTML: (attributes: AiDrawioAttributes) => ({
+          'data-chat-history': attributes.chatHistory,
         }),
       },
     };
@@ -107,11 +123,11 @@ export const Drawio = Node.create<DrawioOptions>({
 
   addCommands() {
     return {
-      setDrawio:
-        (attrs: DrawioAttributes) =>
+      setAiDrawio:
+        (attrs: AiDrawioAttributes) =>
           ({ commands }) => {
             return commands.insertContent({
-              type: "drawio",
+              type: "aiDrawio",
               attrs: attrs,
             });
           },
