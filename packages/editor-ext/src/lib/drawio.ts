@@ -109,12 +109,12 @@ export const Drawio = Node.create<DrawioOptions>({
     return {
       setDrawio:
         (attrs: DrawioAttributes) =>
-          ({ commands }) => {
-            return commands.insertContent({
-              type: "drawio",
-              attrs: attrs,
-            });
-          },
+        ({ commands }) => {
+          return commands.insertContent({
+            type: "drawio",
+            attrs: attrs,
+          });
+        },
     };
   },
 

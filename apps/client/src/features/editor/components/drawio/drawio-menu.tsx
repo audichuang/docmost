@@ -12,12 +12,8 @@ import {
   ShouldShowProps,
 } from "@/features/editor/components/table/types/types.ts";
 import { NodeWidthResize } from "@/features/editor/components/common/node-width-resize.tsx";
-import { ActionIcon, Tooltip } from "@mantine/core";
-import { IconBrain } from "@tabler/icons-react";
-import { useTranslation } from "react-i18next";
 
 export function DrawioMenu({ editor }: EditorMenuProps) {
-  const { t } = useTranslation();
   const shouldShow = useCallback(
     ({ state }: ShouldShowProps) => {
       if (!state) {
@@ -64,35 +60,6 @@ export function DrawioMenu({ editor }: EditorMenuProps) {
     [editor],
   );
 
-  const convertToAiDrawio = useCallback(() => {
-    const { selection } = editor.state;
-    const predicate = (node: PMNode) => node.type.name === "drawio";
-    const parent = findParentNode(predicate)(selection);
-
-    if (parent) {
-      const attrs = parent.node.attrs;
-      editor
-        .chain()
-        .focus()
-        .deleteRange({
-          from: parent.pos,
-          to: parent.pos + parent.node.nodeSize,
-        })
-        .insertContent({
-          type: "aiDrawio",
-          attrs: {
-            src: attrs.src,
-            title: attrs.title,
-            width: attrs.width,
-            size: attrs.size,
-            align: attrs.align,
-            attachmentId: attrs.attachmentId,
-          },
-        })
-        .run();
-    }
-  }, [editor]);
-
   return (
     <BaseBubbleMenu
       editor={editor}
@@ -115,21 +82,11 @@ export function DrawioMenu({ editor }: EditorMenuProps) {
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          gap: "8px",
         }}
       >
         {editorState?.width && (
           <NodeWidthResize onChange={onWidthChange} value={editorState.width} />
         )}
-        <Tooltip label={t("Open with AI Editor")} position="top">
-          <ActionIcon
-            onClick={convertToAiDrawio}
-            variant="default"
-            size="sm"
-          >
-            <IconBrain size={16} />
-          </ActionIcon>
-        </Tooltip>
       </div>
     </BaseBubbleMenu>
   );

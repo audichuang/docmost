@@ -44,7 +44,6 @@ import {
 import LinkMenu from "@/features/editor/components/link/link-menu.tsx";
 import ExcalidrawMenu from "./components/excalidraw/excalidraw-menu";
 import DrawioMenu from "./components/drawio/drawio-menu";
-import AiDrawioMenu from "./components/ai-drawio/ai-drawio-menu";
 import { useCollabToken } from "@/features/auth/queries/auth-query.tsx";
 import SearchAndReplaceDialog from "@/features/editor/components/search-and-replace/search-and-replace-dialog.tsx";
 import { useDebouncedCallback, useDocumentVisibility } from "@mantine/hooks";
@@ -58,59 +57,6 @@ import { PageEditMode } from "@/features/user/types/user.types.ts";
 import { jwtDecode } from "jwt-decode";
 import { searchSpotlight } from "@/features/search/constants.ts";
 import EditorSkeleton from "@/features/editor/components/editor-skeleton.tsx";
-import { useEditorScroll } from "./hooks/use-editor-scroll";
-import type { Editor } from "@tiptap/react";
-
-/**
- * Removes duplicate AI-DrawIO nodes after Yjs sync.
- * Root cause: Large xmlContent/chatHistory attributes cause IndexedDB sync issues.
- * Keeps first occurrence by attachmentId.
- */
-function deduplicateAiDrawioNodes(editor: Editor) {
-  if (!editor || editor.isDestroyed || !editor.isEditable) return;
-
-  const doc = editor.state.doc;
-  const seen = new Map<string, number>(); // attachmentId -> first position
-  const toDelete: { from: number; to: number }[] = [];
-
-  doc.descendants((node, pos) => {
-    if (
-      node.type.name === "aiDrawio" &&
-      node.attrs.attachmentId &&
-      node.attrs.attachmentId.trim()
-    ) {
-      const id = node.attrs.attachmentId;
-      if (seen.has(id)) {
-        // Keep the first occurrence, mark subsequent duplicates for deletion
-        toDelete.push({ from: pos, to: pos + node.nodeSize });
-      } else {
-        seen.set(id, pos);
-      }
-    }
-    return true;
-  });
-
-  if (toDelete.length > 0) {
-    console.warn(
-      `[Docmost] Removing ${toDelete.length} duplicate AI-DrawIO node(s)`,
-    );
-    try {
-      // Delete in reverse order to maintain correct positions
-      const tr = editor.state.tr;
-      toDelete.reverse().forEach(({ from, to }) => {
-        // Validate position is still within document bounds
-        if (from >= 0 && to <= tr.doc.content.size) {
-          tr.delete(from, to);
-        }
-      });
-      if (tr.docChanged) {
-        editor.view.dispatch(tr);
-      }
-    } catch (error) {
-      console.error("[Docmost] Failed to deduplicate AI-DrawIO nodes:", error);
-    }
-  }
-}
 
 interface PageEditorProps {
   pageId: string;
@@ -141,13 +87,8 @@ export default function PageEditor({
   const [, setActiveCommentId] = useAtom(activeCommentIdAtom);
   const [showCommentPopup, setShowCommentPopup] = useAtom(showCommentPopupAtom);
 
-  // Create Y.Doc using useRef to maintain stable reference across renders
-  // This is critical for proper Yjs/IndexedDB sync - useMemo caused duplication issues
-  const ydocRef = useRef<Y.Doc | null>(null);
-  if (!ydocRef.current) {
-    ydocRef.current = new Y.Doc();
-  }
-  const ydoc = ydocRef.current;
+  // Create new Y.Doc for each page (synchronously during render)
+  const ydoc = useMemo(() => new Y.Doc(), [pageId]);
   const [isLocalSynced, setLocalSynced] = useState(false);
   const [isRemoteSynced, setRemoteSynced] = useState(false);
   const [yjsConnectionStatus, setYjsConnectionStatus] = useAtom(
@@ -204,7 +145,10 @@ export default function PageEditor({
 
   useEffect(() => {
     if (!providersRef.current) {
-      const local = new IndexeddbPersistence(documentName, ydoc);
+      // Skip IndexedDB persistence for GitHub-managed (locked) pages to prevent stale cache
+      const local = isLocked
+        ? null
+        : new IndexeddbPersistence(documentName, ydoc);
 
       if (local) {
         local.on("synced", () => setLocalSynced(true));
@@ -477,35 +421,6 @@ export default function PageEditor({
     }
   }, [remoteProvider?.status, isRemoteSynced]);
 
-  // Deduplicate AI-DrawIO nodes after both local and remote sync complete
-  // This fixes the issue where AI-DrawIO nodes duplicate on page refresh
-  // due to Yjs/IndexedDB sync issues with large xmlContent/chatHistory attributes
-  const hasDeduplicatedRef = useRef(false);
-  useEffect(() => {
-    // Reset deduplication flag when pageId changes
-    hasDeduplicatedRef.current = false;
-  }, [pageId]);
-
-  useEffect(() => {
-    if (
-      isLocalSynced &&
-      isRemoteSynced &&
-      editor &&
-      !editor.isDestroyed &&
-      editor.isEditable &&
-      !hasDeduplicatedRef.current
-    ) {
-      // Use longer delay to ensure Yjs merge is fully settled
-      const timer = setTimeout(() => {
-        if (!editor.isDestroyed && editor.isEditable) {
-          deduplicateAiDrawioNodes(editor);
-          hasDeduplicatedRef.current = true;
-        }
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [isLocalSynced, isRemoteSynced, editor, pageId]);
-
   // Connection timeout handling with cumulative time tracking
   useEffect(() => {
     // Start tracking time when connecting
@@ -591,7 +506,6 @@ export default function PageEditor({
             <SubpagesMenu editor={editor} />
             <ExcalidrawMenu editor={editor} />
             <DrawioMenu editor={editor} />
-            <AiDrawioMenu editor={editor} />
             <LinkMenu editor={editor} appendTo={menuContainerRef} />
           </div>
         )}

@@ -83,10 +83,6 @@ export function getDrawioUrl() {
   return getConfigValue("DRAWIO_URL", "https://embed.diagrams.net");
 }
 
-export function getNextAiDrawioUrl() {
-  return getConfigValue("NEXT_AI_DRAWIO_URL", "http://localhost:6002");
-}
-
 export function getBillingTrialDays() {
   return getConfigValue("BILLING_TRIAL_DAYS");
 }

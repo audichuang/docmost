@@ -6,11 +6,12 @@ import { TaskItem } from "@tiptap/extension-task-item";
 import { Underline } from "@tiptap/extension-underline";
 import { Superscript } from "@tiptap/extension-superscript";
 import SubScript from "@tiptap/extension-subscript";
+import { Highlight } from "@tiptap/extension-highlight";
 import { Typography } from "@tiptap/extension-typography";
 import { TextStyle } from "@tiptap/extension-text-style";
 import { Color } from "@tiptap/extension-color";
 import SlashCommand from "@/features/editor/extensions/slash-command";
-import { Collaboration, isChangeOrigin } from "@tiptap/extension-collaboration";
+import { Collaboration } from "@tiptap/extension-collaboration";
 import { CollaborationCursor } from "@tiptap/extension-collaboration-cursor";
 import { HocuspocusProvider } from "@hocuspocus/provider";
 import {
@@ -33,16 +34,12 @@ import {
   Attachment,
   CustomCodeBlock,
   Drawio,
-  AiDrawio,
   Excalidraw,
   Embed,
   SearchAndReplace,
   Mention,
   Subpages,
   TableDndExtension,
-  Heading,
-  Highlight,
-  UniqueID,
 } from "@docmost/editor-ext";
 import {
   randomElement,
@@ -60,7 +57,6 @@ import VideoView from "@/features/editor/components/video/video-view.tsx";
 import AttachmentView from "@/features/editor/components/attachment/attachment-view.tsx";
 import CodeBlockView from "@/features/editor/components/code-block/code-block-view.tsx";
 import DrawioView from "../components/drawio/drawio-view";
-import AiDrawioView from "../components/ai-drawio/ai-drawio-view";
 import ExcalidrawView from "@/features/editor/components/excalidraw/excalidraw-view.tsx";
 import EmbedView from "@/features/editor/components/embed/embed-view.tsx";
 import SubpagesView from "@/features/editor/components/subpages/subpages-view.tsx";
@@ -97,7 +93,6 @@ lowlight.register("scala", scala);
 
 export const mainExtensions = [
   StarterKit.configure({
-    heading: false,
     history: false,
     dropcursor: {
       width: 3,
@@ -109,11 +104,6 @@ export const mainExtensions = [
         spellcheck: false,
       },
     },
-  }),
-  Heading,
-  UniqueID.configure({
-    types: ["heading", "paragraph"],
-    filterTransaction: (transaction) => !isChangeOrigin(transaction),
   }),
   Placeholder.configure({
     placeholder: ({ node }) => {
@@ -219,9 +209,6 @@ export const mainExtensions = [
   }),
   Drawio.configure({
     view: DrawioView,
-  }),
-  AiDrawio.configure({
-    view: AiDrawioView,
   }),
   Excalidraw.configure({
     view: ExcalidrawView,
