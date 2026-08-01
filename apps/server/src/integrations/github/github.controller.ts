@@ -40,6 +40,7 @@ import {
   ListReposQueryDto,
   UpdateSourceDto,
 } from './github.dto';
+import { signInstallState, verifyInstallState } from './github.utils';
 
 @UseGuards(JwtAuthGuard)
 @Controller('integrations/github')
@@ -81,9 +82,7 @@ export class GithubController {
     const appSlug = this.env.getGithubAppSlug();
     if (!appSlug) throw new NotFoundException('github_app_not_configured');
 
-    const state = Buffer.from(
-      JSON.stringify({ workspaceId: workspace.id }),
-    ).toString('base64url');
+    const state = signInstallState(workspace.id, this.env.getAppSecret());
 
     return {
       url: `https://github.com/apps/${appSlug}/installations/new?state=${encodeURIComponent(state)}`,
@@ -104,15 +103,11 @@ export class GithubController {
 
     if (!installationId || !state) return fail('missing_params');
 
-    let workspaceId: string;
-    try {
-      workspaceId = JSON.parse(
-        Buffer.from(state, 'base64url').toString(),
-      )?.workspaceId;
-    } catch {
-      return fail('invalid_state');
-    }
-    if (!workspaceId) return fail('invalid_state');
+    // an unsigned state would let anyone link their own installation into
+    // someone else's workspace through this public endpoint
+    const verified = verifyInstallState(state, this.env.getAppSecret());
+    if (!verified) return fail('invalid_state');
+    const { workspaceId } = verified;
 
     const info = await this.githubApi.getInstallationInfo(installationId);
     if (!info?.account?.login || !info?.account?.type) {
