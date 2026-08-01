@@ -3,8 +3,65 @@ import {
   extractTitle,
   normalizeDir,
   resolveRepoPath,
+  signInstallState,
   titleFromSegment,
+  verifyInstallState,
 } from './github.utils';
+
+describe('install state', () => {
+  const secret = 'test-secret';
+  const ws = '018f0000-0000-7000-8000-000000000000';
+
+  it('round-trips a workspace id', () => {
+    const state = signInstallState(ws, secret);
+    expect(verifyInstallState(state, secret)).toEqual({ workspaceId: ws });
+  });
+
+  /**
+   * The callback is public, so a forged state would let an attacker attach
+   * their own GitHub installation to someone else's workspace.
+   */
+  it('rejects a state we did not sign', () => {
+    const forged = `${Buffer.from(
+      JSON.stringify({ workspaceId: ws, ts: Date.now() }),
+    ).toString('base64url')}.deadbeef`;
+
+    expect(verifyInstallState(forged, secret)).toBeNull();
+  });
+
+  it('rejects a state signed with another secret', () => {
+    expect(verifyInstallState(signInstallState(ws, 'other'), secret)).toBeNull();
+  });
+
+  it('rejects a tampered payload', () => {
+    const state = signInstallState(ws, secret);
+    const [, signature] = state.split('.');
+    const swapped = Buffer.from(
+      JSON.stringify({ workspaceId: 'victim', ts: Date.now() }),
+    ).toString('base64url');
+
+    expect(verifyInstallState(`${swapped}.${signature}`, secret)).toBeNull();
+  });
+
+  it('rejects an expired state', () => {
+    const old = Buffer.from(
+      JSON.stringify({ workspaceId: ws, ts: Date.now() - 11 * 60 * 1000 }),
+    ).toString('base64url');
+    const sig = require('crypto')
+      .createHmac('sha256', secret)
+      .update(old)
+      .digest('hex');
+
+    expect(verifyInstallState(`${old}.${sig}`, secret)).toBeNull();
+  });
+
+  it.each([[''], ['nodot'], ['a.b.c'], [undefined as unknown as string]])(
+    'rejects malformed state %s',
+    (state) => {
+      expect(verifyInstallState(state, secret)).toBeNull();
+    },
+  );
+});
 
 describe('assertRepoCoordinates', () => {
   it('accepts real GitHub names', () => {
