@@ -148,6 +148,38 @@ export class GithubApiService {
   }
 
   /**
+   * Byte-preserving fetch. `request()` decodes the body as UTF-8, which
+   * destroys every non-ASCII byte of an image — this must be used for blobs.
+   */
+  private async requestBytes(
+    path: string,
+    opts: { token: string; accept: string; timeoutMs?: number },
+  ): Promise<{ status: number; buffer: Buffer | null }> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 30000);
+
+    try {
+      const res = await fetch(`${this.apiBase}${path}`, {
+        headers: this.headers(opts.token, { Accept: opts.accept }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) return { status: res.status, buffer: null };
+
+      return {
+        status: res.status,
+        buffer: Buffer.from(await res.arrayBuffer()),
+      };
+    } catch (err) {
+      throw new BadGatewayException(
+        `github_request_failed: ${err instanceof Error ? err.message : 'unknown'}`,
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
    * Installation tokens are valid for an hour; cache them so a large sync
    * does not mint one per file.
    */
@@ -269,20 +301,16 @@ export class GithubApiService {
     sha: string,
     token: string,
   ): Promise<Buffer> {
-    const res = await this.request(`/repos/${owner}/${repo}/git/blobs/${sha}`, {
-      token,
-      headers: { Accept: 'application/vnd.github.raw+json' },
-      timeoutMs: 30000,
-    });
+    const res = await this.requestBytes(
+      `/repos/${owner}/${repo}/git/blobs/${sha}`,
+      { token, accept: 'application/vnd.github.raw' },
+    );
 
-    if (res.status !== 200) throw new BadGatewayException('github_blob_failed');
-
-    // raw media type returns the bytes as the body; safeJsonParse leaves it a string
-    if (typeof res.json === 'string') return Buffer.from(res.json, 'utf8');
-    if (res.json?.content) {
-      return Buffer.from(res.json.content, res.json.encoding ?? 'base64');
+    if (res.status !== 200 || !res.buffer) {
+      throw new BadGatewayException('github_blob_failed');
     }
-    throw new BadGatewayException('github_blob_unreadable');
+
+    return res.buffer;
   }
 
   /** Fetch by path when the SHA is unknown (webhook payloads only give paths). */

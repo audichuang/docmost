@@ -24,8 +24,6 @@ import {
 import posthog from "posthog-js";
 import { startR2TokenRefresh } from "@/lib/r2-token.ts";
 
-startR2TokenRefresh();
-
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -48,6 +46,12 @@ if (isCloud() && isPostHogEnabled) {
 
 const container = document.getElementById("root") as HTMLElement;
 const root = (container as any).__reactRoot ??= ReactDOM.createRoot(container);
+
+// getFileUrl() appends the R2 token synchronously, so the first token has to
+// be in hand before anything renders — otherwise the first paint of every
+// R2-hosted image 401s and nothing re-renders to fix it.
+// Resolves immediately when R2 protection is disabled.
+await startR2TokenRefresh();
 
 root.render(
   <BrowserRouter>

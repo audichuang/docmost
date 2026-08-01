@@ -32,22 +32,36 @@ async function fetchToken(): Promise<number> {
   return msUntilExpiry > 30_000 ? msUntilExpiry - 30_000 : 4 * 60_000;
 }
 
-/** Starts background refresh. Safe to call more than once. */
-export function startR2TokenRefresh(): void {
+/**
+ * Fetches the first token, then keeps it refreshed in the background.
+ *
+ * Awaiting the first fetch matters: `getFileUrl()` reads the token
+ * synchronously while rendering, and nothing re-renders when a token arrives
+ * late. Resolves immediately when R2 protection is not configured.
+ * Safe to call more than once.
+ */
+export async function startR2TokenRefresh(): Promise<void> {
   if (!isR2TokenEnabled() || refreshTimer) return;
 
-  const tick = async () => {
-    let nextDelay = 60_000;
-    try {
-      nextDelay = await fetchToken();
-    } catch {
-      // keep serving the previous token and retry sooner
-      nextDelay = 30_000;
-    }
-    refreshTimer = setTimeout(tick, nextDelay);
+  const scheduleNext = (delay: number) => {
+    refreshTimer = setTimeout(tick, delay);
   };
 
-  refreshTimer = setTimeout(tick, 0);
+  const tick = async () => {
+    try {
+      scheduleNext(await fetchToken());
+    } catch {
+      // keep serving the previous token and retry sooner
+      scheduleNext(30_000);
+    }
+  };
+
+  try {
+    scheduleNext(await fetchToken());
+  } catch {
+    // a missing token must not block the app from starting
+    scheduleNext(30_000);
+  }
 }
 
 /**
