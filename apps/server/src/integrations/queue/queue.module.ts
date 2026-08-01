@@ -100,6 +100,15 @@ import { GeneralQueueProcessor } from './processors/general-queue.processor';
         removeOnFail: { count: 100 },
       },
     }),
+    BullModule.registerQueue({
+      name: QueueName.GITHUB_QUEUE,
+      defaultJobOptions: {
+        attempts: 2,
+        // kept around so the UI can still read progress after a sync finishes
+        removeOnComplete: { count: 50, age: 3600 },
+        removeOnFail: { count: 50 },
+      },
+    }),
   ],
   exports: [BullModule],
   providers: [GeneralQueueProcessor],

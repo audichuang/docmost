@@ -22,6 +22,9 @@ import {
   isPostHogEnabled,
 } from "@/lib/config.ts";
 import posthog from "posthog-js";
+import { startR2TokenRefresh } from "@/lib/r2-token.ts";
+
+startR2TokenRefresh();
 
 export const queryClient = new QueryClient({
   defaultOptions: {
