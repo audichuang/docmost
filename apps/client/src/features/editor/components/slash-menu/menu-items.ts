@@ -36,6 +36,7 @@ import {
   SlashMenuGroupedItemsType,
 } from "@/features/editor/components/slash-menu/types";
 import { uploadImageAction } from "@/features/editor/components/image/upload-image-action.tsx";
+import { openImageUrlModal } from "@/features/editor/components/image/image-url-modal.tsx";
 import { uploadVideoAction } from "@/features/editor/components/video/upload-video-action.tsx";
 import { uploadAudioAction } from "@/features/editor/components/audio/upload-audio-action.tsx";
 import { uploadAttachmentAction } from "@/features/editor/components/attachment/upload-attachment-action.tsx";
@@ -208,6 +209,16 @@ const CommandGroups: SlashMenuGroupedItemsType = {
           input.remove();
         };
         input.click();
+      },
+    },
+    {
+      title: "Image from URL",
+      description: "Embed an image hosted elsewhere by its link.",
+      searchTerms: ["image", "url", "link", "remote", "photo", "picture"],
+      icon: IconPhoto,
+      command: ({ editor, range }) => {
+        editor.chain().focus().deleteRange(range).run();
+        openImageUrlModal(editor);
       },
     },
     {

@@ -10,6 +10,7 @@ export enum QueueName {
   NOTIFICATION_QUEUE = '{notification-queue}',
   AUDIT_QUEUE = '{audit-queue}',
   BASE_QUEUE = '{base-queue}',
+  GITHUB_QUEUE = '{github-queue}',
 }
 
 export enum QueueJob {
@@ -88,4 +89,7 @@ export enum QueueJob {
   BASE_TYPE_CONVERSION = 'base-type-conversion',
   BASE_CELL_GC = 'base-cell-gc',
   BASE_FORMULA_RECOMPUTE = 'base-formula-recompute',
+
+  GITHUB_FULL_SYNC = 'github-full-sync',
+  GITHUB_PUSH = 'github-push',
 }

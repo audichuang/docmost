@@ -250,6 +250,69 @@ export interface FileTasks {
   workspaceId: string;
 }
 
+export interface GithubFiles {
+  attachmentId: string | null;
+  contentType: string;
+  createdAt: Generated<Timestamp>;
+  error: string | null;
+  id: Generated<string>;
+  pageId: string | null;
+  path: string;
+  renamedFromPath: string | null;
+  sha: string | null;
+  sourceId: string;
+  status: Generated<string>;
+  title: string | null;
+  updatedAt: Generated<Timestamp>;
+}
+
+export interface GithubInstallations {
+  accountLogin: string;
+  accountType: string;
+  appId: string;
+  createdAt: Generated<Timestamp>;
+  id: Generated<string>;
+  installationId: string;
+  updatedAt: Generated<Timestamp>;
+  workspaceId: string;
+}
+
+export interface GithubSources {
+  active: Generated<boolean>;
+  createdAt: Generated<Timestamp>;
+  creatorId: string | null;
+  githubInstallationId: string;
+  id: Generated<string>;
+  lastFullScanSha: string | null;
+  lastSyncError: string | null;
+  lastSyncedAt: Timestamp | null;
+  mode: Generated<string>;
+  owner: string;
+  ref: string;
+  repo: string;
+  rootDir: Generated<string>;
+  rootPageId: string | null;
+  spaceId: string;
+  updatedAt: Generated<Timestamp>;
+  workspaceId: string;
+}
+
+export interface GithubWebhookEvents {
+  afterSha: string | null;
+  beforeSha: string | null;
+  createdAt: Generated<Timestamp>;
+  deliveryId: string;
+  error: string | null;
+  event: string;
+  githubInstallationId: string | null;
+  id: Generated<string>;
+  ok: boolean | null;
+  payload: Json | null;
+  processed: Generated<boolean>;
+  processedAt: Timestamp | null;
+  repoFullName: string | null;
+}
+
 export interface Groups {
   createdAt: Generated<Timestamp>;
   creatorId: string | null;
@@ -652,6 +715,10 @@ export interface DB {
   comments: Comments;
   favorites: Favorites;
   fileTasks: FileTasks;
+  githubFiles: GithubFiles;
+  githubInstallations: GithubInstallations;
+  githubSources: GithubSources;
+  githubWebhookEvents: GithubWebhookEvents;
   groups: Groups;
   groupUsers: GroupUsers;
   labels: Labels;

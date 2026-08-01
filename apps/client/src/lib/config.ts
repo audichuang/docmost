@@ -2,6 +2,7 @@ import bytes from "bytes";
 import { castToBoolean } from "@/lib/utils.tsx";
 import { AvatarIconType } from "@/features/attachments/types/attachment.types.ts";
 import { sanitizeUrl } from "@docmost/editor-ext";
+import { appendR2Token } from "@/lib/r2-token.ts";
 
 declare global {
   interface Window {
@@ -59,7 +60,8 @@ export function getSpaceUrl(spaceSlug: string) {
 
 export function getFileUrl(src: string) {
   if (!src) return src;
-  if (src.startsWith("http")) return src;
+  // absolute URLs may point at the token-protected R2 domain
+  if (src.startsWith("http")) return appendR2Token(src);
   if (src.startsWith("/api/")) {
     // Remove the '/api' prefix
     return getBackendUrl() + src.substring(4);

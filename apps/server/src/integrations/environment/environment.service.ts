@@ -360,4 +360,47 @@ export class EnvironmentService {
       .map((o) => o.trim())
       .filter(Boolean);
   }
+
+  getGithubAppId(): string {
+    return this.configService.get<string>('GITHUB_APP_ID');
+  }
+
+  getGithubAppSlug(): string {
+    return this.configService.get<string>('GITHUB_APP_SLUG');
+  }
+
+  getGithubPrivateKey(): string {
+    return this.configService.get<string>('GITHUB_APP_PRIVATE_KEY');
+  }
+
+  getGithubWebhookSecret(): string {
+    return this.configService.get<string>('GITHUB_APP_WEBHOOK_SECRET');
+  }
+
+  getGithubApiBase(): string {
+    return this.configService.get<string>(
+      'GITHUB_API_BASE',
+      'https://api.github.com',
+    );
+  }
+
+  getGithubApiVersion(): string {
+    return this.configService.get<string>('GITHUB_API_VERSION', '2022-11-28');
+  }
+
+  getR2ImageDomain(): string {
+    return this.configService.get<string>('R2_IMAGE_DOMAIN');
+  }
+
+  getR2TokenSecret(): string {
+    return (
+      this.configService.get<string>('R2_TOKEN_SECRET') || this.getAppSecret()
+    );
+  }
+
+  getR2TokenValiditySeconds(): number {
+    return Number(
+      this.configService.get<string>('R2_TOKEN_VALIDITY_SECONDS', '300'),
+    );
+  }
 }

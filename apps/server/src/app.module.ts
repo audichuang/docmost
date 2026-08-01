@@ -17,6 +17,8 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { HealthModule } from './integrations/health/health.module';
 import { ExportModule } from './integrations/export/export.module';
 import { ImportModule } from './integrations/import/import.module';
+import { GithubModule } from './integrations/github/github.module';
+import { R2TokenModule } from './integrations/r2-token/r2-token.module';
 import { SecurityModule } from './integrations/security/security.module';
 import { TelemetryModule } from './integrations/telemetry/telemetry.module';
 import { RedisModule } from '@nestjs-labs/nestjs-ioredis';
@@ -75,6 +77,8 @@ try {
     HealthModule,
     ImportModule,
     ExportModule,
+    GithubModule,
+    R2TokenModule,
     StorageModule.forRootAsync({
       imports: [EnvironmentModule],
     }),

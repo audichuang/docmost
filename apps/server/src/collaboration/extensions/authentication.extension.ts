@@ -101,6 +101,13 @@ export class AuthenticationExtension implements Extension {
       data.connectionConfig.readOnly = true;
     }
 
+    // Locked pages (e.g. mirrored from a GitHub source) are read-only over the
+    // socket. Server-side direct connections skip authentication, so the sync
+    // that owns the page can still write to it.
+    if (page.isLocked) {
+      data.connectionConfig.readOnly = true;
+    }
+
     this.logger.debug(`Authenticated user ${user.id} on page ${pageId}`);
 
     return {
