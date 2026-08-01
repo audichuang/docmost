@@ -1,8 +1,22 @@
 import * as path from 'path';
 import { load } from 'cheerio';
+import { BadRequestException } from '@nestjs/common';
+import { GITHUB_OWNER_RE, GITHUB_REPO_RE } from './github.dto';
 
 export const MARKDOWN_RE = /\.mdx?$/i;
 export const INDEX_RE = /^(readme|index)\.mdx?$/i;
+
+/**
+ * Second line of defence for values that end up in a GitHub API URL path.
+ * A slash here silently redirects the request to a different endpoint —
+ * `new URL()` collapses `..`, so `owner = "a/../../user"` reaches /user.
+ * DTO validation covers new rows; this covers rows from anywhere else.
+ */
+export function assertRepoCoordinates(owner: string, repo: string): void {
+  if (!GITHUB_OWNER_RE.test(owner ?? '') || !GITHUB_REPO_RE.test(repo ?? '')) {
+    throw new BadRequestException('invalid_github_repo_coordinates');
+  }
+}
 
 export function normalizeDir(dir?: string): string {
   if (!dir) return '';
