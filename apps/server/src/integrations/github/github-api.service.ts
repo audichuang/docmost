@@ -9,6 +9,7 @@ import * as jwt from 'jsonwebtoken';
 import { InjectKysely } from 'nestjs-kysely';
 import { KyselyDB } from '@docmost/db/types/kysely.types';
 import { EnvironmentService } from '../environment/environment.service';
+import { assertRepoCoordinates } from './github.utils';
 
 export type GithubTreeEntry = {
   path: string;
@@ -248,6 +249,7 @@ export class GithubApiService {
   }
 
   async listRefs(installationRowId: string, owner: string, repo: string) {
+    assertRepoCoordinates(owner, repo);
     const token = await this.getInstallationToken(installationRowId);
 
     const fetchPaged = async (kind: 'branches' | 'tags') => {
@@ -282,6 +284,7 @@ export class GithubApiService {
     ref: string,
     token: string,
   ): Promise<{ entries: GithubTreeEntry[]; truncated: boolean }> {
+    assertRepoCoordinates(owner, repo);
     const res = await this.request(
       `/repos/${owner}/${repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
       { token, timeoutMs: 30000 },
@@ -301,6 +304,8 @@ export class GithubApiService {
     sha: string,
     token: string,
   ): Promise<Buffer> {
+    assertRepoCoordinates(owner, repo);
+
     const res = await this.requestBytes(
       `/repos/${owner}/${repo}/git/blobs/${sha}`,
       { token, accept: 'application/vnd.github.raw' },
@@ -321,6 +326,8 @@ export class GithubApiService {
     ref: string,
     token: string,
   ): Promise<{ status: number; buffer?: Buffer; sha?: string }> {
+    assertRepoCoordinates(owner, repo);
+
     const res = await this.request(
       `/repos/${owner}/${repo}/contents/${encodeURI(path)}?ref=${encodeURIComponent(ref)}`,
       { token, timeoutMs: 30000 },
@@ -352,6 +359,8 @@ export class GithubApiService {
     head: string,
     token: string,
   ): Promise<GithubCompareFile[]> {
+    assertRepoCoordinates(owner, repo);
+
     const res = await this.request(
       `/repos/${owner}/${repo}/compare/${base}...${head}`,
       { token, timeoutMs: 30000 },
@@ -366,6 +375,8 @@ export class GithubApiService {
     ref: string,
     token: string,
   ): Promise<string | null> {
+    assertRepoCoordinates(owner, repo);
+
     const res = await this.request(
       `/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`,
       { token },

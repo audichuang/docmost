@@ -1,9 +1,34 @@
 import {
+  assertRepoCoordinates,
   extractTitle,
   normalizeDir,
   resolveRepoPath,
   titleFromSegment,
 } from './github.utils';
+
+describe('assertRepoCoordinates', () => {
+  it('accepts real GitHub names', () => {
+    expect(() => assertRepoCoordinates('audichuang', 'docmost')).not.toThrow();
+    expect(() => assertRepoCoordinates('my-org', 'my.repo_v2')).not.toThrow();
+  });
+
+  /**
+   * new URL() collapses "..", so a slash in owner reaches a different
+   * endpoint entirely: /repos/a/../../user/... resolves to /user.
+   */
+  it.each([
+    ['a/../../user', 'repo'],
+    ['owner', '../../user'],
+    ['owner/sub', 'repo'],
+    ['', 'repo'],
+    ['-leading', 'repo'],
+    [undefined as unknown as string, 'repo'],
+  ])('rejects owner=%s repo=%s', (owner, repo) => {
+    expect(() => assertRepoCoordinates(owner, repo)).toThrow(
+      'invalid_github_repo_coordinates',
+    );
+  });
+});
 
 describe('resolveRepoPath', () => {
   it('resolves a sibling file', () => {
