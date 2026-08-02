@@ -49,6 +49,71 @@ import {
 } from './github.dto';
 import { signInstallState, verifyInstallState } from './github.utils';
 
+export type InstallationOwnershipResult =
+  | { ok: true }
+  | {
+      ok: false;
+      error:
+        | 'installation_ownership_not_configured'
+        | 'missing_oauth_code'
+        | 'oauth_verification_failed'
+        | 'installation_not_owned';
+    };
+
+/**
+ * B1: pure decision at the heart of the callback fix — do we have proof the
+ * calling user controls `installationId`? Kept side-effect free so every
+ * branch (operator hasn't configured OAuth, GitHub sent no code, the token
+ * exchange/listing failed, or the installation just isn't theirs) is a plain
+ * unit test instead of something that needs a live GitHub API to exercise.
+ */
+export function evaluateInstallationOwnership(args: {
+  clientSecretConfigured: boolean;
+  code: string | null | undefined;
+  installationId: string;
+  userInstallationIds: string[] | null;
+}): InstallationOwnershipResult {
+  if (!args.clientSecretConfigured) {
+    // refuse to link rather than silently trust a guessable installation_id
+    return { ok: false, error: 'installation_ownership_not_configured' };
+  }
+  if (!args.code) {
+    return { ok: false, error: 'missing_oauth_code' };
+  }
+  if (args.userInstallationIds === null) {
+    return { ok: false, error: 'oauth_verification_failed' };
+  }
+  if (!args.userInstallationIds.includes(String(args.installationId))) {
+    return { ok: false, error: 'installation_not_owned' };
+  }
+  return { ok: true };
+}
+
+export type FullSyncJobState =
+  | 'waiting'
+  | 'active'
+  | 'delayed'
+  | 'prioritized'
+  | 'waiting-children'
+  | 'completed'
+  | 'failed'
+  | 'unknown';
+
+export function fullSyncJobId(sourceId: string): string {
+  return `github-full-sync:${sourceId}`;
+}
+
+/**
+ * A6: whether an existing full-sync job for a source is still on its way to
+ * running. While true, a fresh trigger (rescan click, another push falling
+ * back to a full sync) should ride along with that job instead of queuing a
+ * second scan of the same ref — running both is exactly what lets a scan
+ * write stale content after a newer push already synced it.
+ */
+export function isFullSyncInFlight(state: FullSyncJobState): boolean {
+  return state !== 'completed' && state !== 'failed' && state !== 'unknown';
+}
+
 @UseGuards(JwtAuthGuard)
 @Controller('integrations/github')
 export class GithubController {
@@ -119,11 +184,12 @@ export class GithubController {
   async handleCallback(
     @Query('installation_id') installationId: string,
     @Query('state') state: string,
+    @Query('code') code: string,
     @Res() res: FastifyReply,
   ) {
     const settingsUrl = `${this.env.getAppUrl()}/settings/integrations/github`;
-    const fail = (code: string) =>
-      res.status(302).redirect(`${settingsUrl}?error=${code}`);
+    const fail = (errorCode: string) =>
+      res.status(302).redirect(`${settingsUrl}?error=${errorCode}`);
 
     if (!installationId || !state) return fail('missing_params');
 
@@ -132,6 +198,33 @@ export class GithubController {
     const verified = verifyInstallState(state, this.env.getAppSecret());
     if (!verified) return fail('invalid_state');
     const { workspaceId } = verified;
+
+    // B1: a signed state only proves *we* started this flow for this
+    // workspace — it says nothing about who controls the numeric
+    // installation_id GitHub handed back, and that id is guessable. Without
+    // this check, an attacker can request their own valid state, then replay
+    // the callback with a victim's installation_id and bind it to their own
+    // workspace. Require proof, via the installing user's own OAuth token,
+    // that they can actually see this installation before we ever link it.
+    const clientSecretConfigured = Boolean(this.env.getGithubAppClientSecret());
+    let userInstallationIds: string[] | null = null;
+    if (clientSecretConfigured && code) {
+      const userToken = await this.exchangeUserCode(code);
+      userInstallationIds = userToken
+        ? await this.listUserInstallationIds(userToken)
+        : null;
+    }
+
+    const ownership = evaluateInstallationOwnership({
+      clientSecretConfigured,
+      code,
+      installationId,
+      userInstallationIds,
+    });
+    // `ownership.ok === false` (not `!ownership.ok`) — this repo builds with
+    // strictNullChecks off, under which TS won't narrow a discriminated
+    // union through a negated boolean check, only an explicit comparison
+    if (ownership.ok === false) return fail(ownership.error);
 
     const info = await this.githubApi.getInstallationInfo(installationId);
     if (!info?.account?.login || !info?.account?.type) {
@@ -146,6 +239,60 @@ export class GithubController {
     });
 
     return res.status(302).redirect(`${settingsUrl}?success=true`);
+  }
+
+  /**
+   * User-to-server OAuth (distinct from the app-level JWT installation
+   * tokens GithubApiService mints) — this is what lets us ask GitHub which
+   * installations the *human on the other end* can actually see.
+   * https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app
+   */
+  private async exchangeUserCode(code: string): Promise<string | null> {
+    const clientId = this.env.getGithubAppClientId();
+    const clientSecret = this.env.getGithubAppClientSecret();
+    if (!clientId || !clientSecret) return null;
+
+    const res = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json', // GitHub form-encodes the response otherwise
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, code }),
+    });
+    if (!res.ok) return null;
+
+    const json = await res.json().catch(() => null);
+    return typeof json?.access_token === 'string' ? json.access_token : null;
+  }
+
+  /**
+   * https://docs.github.com/en/rest/apps/installations#list-app-installations-accessible-to-the-user-access-token
+   */
+  private async listUserInstallationIds(userToken: string): Promise<string[] | null> {
+    const ids: string[] = [];
+
+    for (let page = 1; page <= 5; page++) {
+      const res = await fetch(
+        `${this.env.getGithubApiBase()}/user/installations?per_page=100&page=${page}`,
+        {
+          headers: {
+            Authorization: `Bearer ${userToken}`,
+            Accept: 'application/vnd.github+json',
+            'X-GitHub-Api-Version': this.env.getGithubApiVersion(),
+          },
+        },
+      );
+      if (!res.ok) return null;
+
+      const json = await res.json().catch(() => null);
+      if (!Array.isArray(json?.installations)) return null;
+
+      ids.push(...json.installations.map((i: any) => String(i.id)));
+      if (json.installations.length < 100) break;
+    }
+
+    return ids;
   }
 
   @Delete('installations/:id')
@@ -201,10 +348,7 @@ export class GithubController {
     await this.assertCanMountUnder(user, dto.rootPageId, dto.spaceId);
 
     const source = await this.sync.createSource(workspace.id, user.id, dto);
-    const job = await this.githubQueue.add(QueueJob.GITHUB_FULL_SYNC, {
-      sourceId: source.id,
-      force: false,
-    });
+    const job = await this.enqueueFullSync(source.id, false);
 
     return { source, jobId: job.id };
   }
@@ -218,12 +362,36 @@ export class GithubController {
     @AuthUser() user: User,
   ) {
     const source = await this.assertSourceAccess(sourceId, workspace.id, user);
-    const job = await this.githubQueue.add(QueueJob.GITHUB_FULL_SYNC, {
-      sourceId: source.id,
-      force: force === '1' || force === 'true',
-    });
+    const job = await this.enqueueFullSync(
+      source.id,
+      force === '1' || force === 'true',
+    );
 
     return { jobId: job.id };
+  }
+
+  /**
+   * A6: a deterministic per-source jobId coalesces redundant triggers (rapid
+   * rescan clicks, a rescan racing an in-flight sync) into the single job
+   * already headed toward the current ref, instead of running each one and
+   * letting an older scan's write land after a newer one's. Once that job
+   * has actually finished, the id is free again for a fresh scan.
+   */
+  private async enqueueFullSync(sourceId: string, force: boolean) {
+    const jobId = fullSyncJobId(sourceId);
+    const existing = await this.githubQueue.getJob(jobId);
+
+    if (existing) {
+      const state = (await existing.getState()) as FullSyncJobState;
+      if (isFullSyncInFlight(state)) return existing;
+      await existing.remove().catch(() => undefined);
+    }
+
+    return this.githubQueue.add(
+      QueueJob.GITHUB_FULL_SYNC,
+      { sourceId, force },
+      { jobId },
+    );
   }
 
   /** Sync progress lives on the BullMQ job, so any node can serve this. */

@@ -369,6 +369,20 @@ export class EnvironmentService {
     return this.configService.get<string>('GITHUB_APP_SLUG');
   }
 
+  getGithubAppClientId(): string {
+    return this.configService.get<string>('GITHUB_APP_CLIENT_ID');
+  }
+
+  /**
+   * Only set once the operator enables "Request user authorization (OAuth)
+   * during installation" on the GitHub App — required to prove the callback
+   * caller actually controls the installation_id they send us (see B1 in
+   * github.controller.ts). Left unset, the callback refuses to link.
+   */
+  getGithubAppClientSecret(): string {
+    return this.configService.get<string>('GITHUB_APP_CLIENT_SECRET');
+  }
+
   getGithubPrivateKey(): string {
     return this.configService.get<string>('GITHUB_APP_PRIVATE_KEY');
   }

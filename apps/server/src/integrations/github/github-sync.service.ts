@@ -1,8 +1,15 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import * as path from 'path';
 import { InjectKysely } from 'nestjs-kysely';
-import { KyselyDB } from '@docmost/db/types/kysely.types';
+import { KyselyDB, KyselyTransaction } from '@docmost/db/types/kysely.types';
+import { dbOrTx, executeTx } from '@docmost/db/utils';
 import { markdownToHtml } from '@docmost/editor-ext';
+import { htmlToJson, jsonToText } from '../../collaboration/collaboration.util';
 import { PageRepo } from '@docmost/db/repos/page/page.repo';
 import { User } from '@docmost/db/types/entity.types';
 import { PageService } from '../../core/page/services/page.service';
@@ -13,6 +20,8 @@ import { CreateSourceDto } from './github.dto';
 import {
   extractTitle,
   INDEX_RE,
+  isCompareSaturated,
+  isPageAlive,
   MARKDOWN_RE,
   normalizeDir,
   titleFromSegment,
@@ -123,6 +132,21 @@ export class GithubSyncService {
     workspaceId: string,
     dto: { installationId: string; accountLogin: string; accountType: string; appId: string },
   ) {
+    // An installation now belongs to exactly one workspace (unique on
+    // installation_id alone). Re-linking it somewhere else is refused rather
+    // than reassigned: the row id is referenced by github_sources, so silently
+    // moving the workspace would leave another workspace's sources hanging off
+    // an installation it no longer owns. Disconnect it there first.
+    const existing = await this.db
+      .selectFrom('githubInstallations')
+      .select(['id', 'workspaceId'])
+      .where('installationId', '=', dto.installationId)
+      .executeTakeFirst();
+
+    if (existing && existing.workspaceId !== workspaceId) {
+      throw new ConflictException('github_installation_linked_elsewhere');
+    }
+
     return this.db
       .insertInto('githubInstallations')
       .values({
@@ -133,7 +157,7 @@ export class GithubSyncService {
         accountType: dto.accountType,
       })
       .onConflict((oc) =>
-        oc.columns(['workspaceId', 'installationId']).doUpdateSet({
+        oc.column('installationId').doUpdateSet({
           accountLogin: dto.accountLogin,
           accountType: dto.accountType,
           updatedAt: new Date(),
@@ -163,21 +187,29 @@ export class GithubSyncService {
       `Full sync start: ${source.owner}/${source.repo}@${source.ref} -> space ${source.spaceId}`,
     );
 
+    // re-fetched before every request rather than held for the whole run —
+    // an installation token is only valid an hour, and a large sync can
+    // easily outlive that (B7). getInstallationToken() itself caches, so
+    // this is a Map lookup, not a network call, on every iteration but the
+    // one near expiry.
+    const getToken = () => this.githubApi.getInstallationToken(source.githubInstallationId);
+
     try {
-      const token = await this.githubApi.getInstallationToken(
-        source.githubInstallationId,
-      );
       const { entries, truncated } = await this.githubApi.getTree(
         source.owner,
         source.repo,
         source.ref,
-        token,
+        await getToken(),
       );
 
       if (truncated) {
-        // never let a partial listing look like a complete sync
-        this.logger.warn(
-          `GitHub truncated the tree for ${source.owner}/${source.repo} — some files were not seen this run`,
+        // GitHub caps the recursive tree and offers no way to page through
+        // the rest of it. Proceeding would silently drop files while still
+        // reporting a clean sync (A5) — fail loudly instead so the error is
+        // visible and BullMQ retries.
+        throw new Error(
+          `github_tree_truncated: ${source.owner}/${source.repo}@${source.ref} has too ` +
+            'many entries for a single recursive listing',
         );
       }
 
@@ -196,6 +228,7 @@ export class GithubSyncService {
       const actor = await this.getActor(source.workspaceId);
       const folderCache = new Map<string, string>();
       const seenPaths = new Set<string>();
+      const failures: { path: string; error: string }[] = [];
 
       const total = markdownEntries.length;
       // a busy repo does not need a progress write per file
@@ -205,7 +238,7 @@ export class GithubSyncService {
         try {
           await this.syncMarkdownFile({
             source,
-            token,
+            token: await getToken(),
             repoPath: entry.path,
             sha: entry.sha,
             blobShas,
@@ -214,10 +247,10 @@ export class GithubSyncService {
             force: opts.force ?? false,
           });
         } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
           await this.markFileError(source.id, entry.path, err);
-          this.logger.warn(
-            `Failed to sync ${entry.path}: ${err instanceof Error ? err.message : err}`,
-          );
+          failures.push({ path: entry.path, error: message });
+          this.logger.warn(`Failed to sync ${entry.path}: ${message}`);
         }
         seenPaths.add(entry.path);
 
@@ -226,16 +259,21 @@ export class GithubSyncService {
         }
       }
 
-      // only trust deletions when the tree listing was complete
-      if (!truncated) {
-        await this.softDeleteMissing(source, seenPaths, actor);
+      // the tree listing is already known-complete (truncation throws above)
+      failures.push(...(await this.softDeleteMissing(source, seenPaths, actor)));
+
+      if (failures.length > 0) {
+        // B5: a sync with per-file failures must fail the job so BullMQ
+        // retries — github_files.error already has the per-path detail,
+        // this is just the source-level summary
+        throw new Error(this.summarizeFailures('github_sync_partial_failure', failures));
       }
 
       const headSha = await this.githubApi.getCommitSha(
         source.owner,
         source.repo,
         source.ref,
-        token,
+        await getToken(),
       );
 
       await this.db
@@ -265,6 +303,15 @@ export class GithubSyncService {
     }
   }
 
+  private summarizeFailures(
+    prefix: string,
+    failures: { path: string; error: string }[],
+  ): string {
+    const shown = failures.slice(0, 5).map((f) => f.path).join(', ');
+    const more = failures.length > 5 ? `, +${failures.length - 5} more` : '';
+    return `${prefix}: ${failures.length} file(s) failed (${shown}${more})`;
+  }
+
   private async syncMarkdownFile(args: {
     source: SourceRow;
     token: string;
@@ -292,7 +339,12 @@ export class GithubSyncService {
       existing.status === 'synced' &&
       existing.pageId
     ) {
-      return { skipped: true };
+      // A4: an unchanged sha is not enough — the mapped page can have been
+      // soft-deleted underneath this mapping (eg. a sibling README's folder
+      // page getting trashed). Skipping without checking left it deleted
+      // forever, since nothing else ever revisits an already-'synced' row.
+      const mappedPage = await this.pageRepo.findById(existing.pageId);
+      if (isPageAlive(mappedPage)) return { skipped: true };
     }
 
     let markdown = args.markdown;
@@ -355,9 +407,10 @@ export class GithubSyncService {
 
     if (pageId) {
       const page = await this.pageRepo.findById(pageId);
-      if (!page || page.deletedAt) pageId = null;
+      if (!isPageAlive(page)) pageId = null;
     }
 
+    let createdNewPage = false;
     if (!pageId) {
       const created = await this.pageService.create(actor.id, source.workspaceId, {
         title,
@@ -365,24 +418,59 @@ export class GithubSyncService {
         parentPageId: folderPageId ?? source.rootPageId ?? undefined,
       });
       pageId = created.id;
+      createdNewPage = true;
     }
 
-    // routed through the collab gateway so open editors update live
-    await this.pageService.updatePageContent(pageId, html, 'replace', 'html', actor);
+    try {
+      // routed through the collab gateway so open editors update live
+      await this.pageService.updatePageContent(pageId, html, 'replace', 'html', actor);
+      await this.assertContentPersisted(pageId, html);
 
-    await this.pageRepo.updatePage(
-      { title, isLocked: true, lastUpdatedById: actor.id, updatedAt: new Date() },
-      pageId,
-    );
+      // the lock flag and the mapping row must agree with each other — a
+      // mapping that outlives its page, or a locked page nothing maps to,
+      // is exactly the orphan B6 is about, so these two writes are atomic
+      await executeTx(this.db, async (trx) => {
+        await this.pageRepo.updatePage(
+          {
+            title,
+            isLocked: true,
+            lastUpdatedById: actor.id,
+            updatedAt: new Date(),
+            // B4: reconciled on every sync, not only a detected rename — a
+            // page whose folder moved must move with it. Skipped for an
+            // index page, whose parent is governed by ensureFolderChain
+            // (its pageId *is* the folder page, not a child of it).
+            ...(isIndex ? {} : { parentPageId: folderPageId ?? source.rootPageId ?? null }),
+          },
+          pageId,
+          trx,
+        );
 
-    await this.upsertFileMapping({
-      sourceId: source.id,
-      path: repoPath,
-      contentType: 'markdown',
-      pageId,
-      sha: blobSha,
-      title,
-    });
+        await this.upsertFileMapping(
+          {
+            sourceId: source.id,
+            path: repoPath,
+            contentType: 'markdown',
+            pageId,
+            sha: blobSha,
+            title,
+          },
+          trx,
+        );
+      });
+    } catch (err) {
+      if (createdNewPage) {
+        // B6: nothing durable points at this page yet (no mapping row was
+        // ever written) — a half-finished sync must not leave a blank,
+        // locked orphan behind. Residual risk: a hard process kill between
+        // pageService.create() succeeding and this catch running can't be
+        // caught at all; closing that fully would need create() to accept a
+        // caller-supplied id (it doesn't) or a separate reconciliation
+        // pass — both out of scope here.
+        await this.pageRepo.deletePage(pageId).catch(() => {});
+      }
+      throw err;
+    }
 
     return { pageId };
   }
@@ -413,6 +501,8 @@ export class GithubSyncService {
         continue;
       }
 
+      const title = titleFromSegment(segment);
+
       const existing = await this.db
         .selectFrom('githubFiles')
         .select(['pageId'])
@@ -424,26 +514,53 @@ export class GithubSyncService {
       let pageId = existing?.pageId ?? null;
       if (pageId) {
         const page = await this.pageRepo.findById(pageId);
-        if (!page || page.deletedAt) pageId = null;
+        if (!isPageAlive(page)) {
+          pageId = null;
+        } else if (page.parentPageId !== (parentId ?? null)) {
+          // B4: reconciled on every sync — a directory that moved must
+          // carry its page along, not just a file detected as renamed
+          await this.pageRepo.updatePage(
+            { parentPageId: parentId ?? null, updatedAt: new Date() },
+            pageId,
+          );
+        }
       }
 
       if (!pageId) {
-        const created = await this.pageService.create(actor.id, source.workspaceId, {
-          title: titleFromSegment(segment),
-          spaceId: source.spaceId,
-          parentPageId: parentId ?? undefined,
-        });
-        pageId = created.id;
-      }
+        // B6: atomic — a folder page with no mapping row is structurally
+        // invisible to the sync and would be recreated on every later scan
+        pageId = await executeTx(this.db, async (trx) => {
+          const created = await this.pageService.create(
+            actor.id,
+            source.workspaceId,
+            { title, spaceId: source.spaceId, parentPageId: parentId ?? undefined },
+            trx,
+          );
 
-      await this.upsertFileMapping({
-        sourceId: source.id,
-        path: mappingPath,
-        contentType: 'folder',
-        pageId,
-        sha: null,
-        title: titleFromSegment(segment),
-      });
+          await this.upsertFileMapping(
+            {
+              sourceId: source.id,
+              path: mappingPath,
+              contentType: 'folder',
+              pageId: created.id,
+              sha: null,
+              title,
+            },
+            trx,
+          );
+
+          return created.id;
+        });
+      } else {
+        await this.upsertFileMapping({
+          sourceId: source.id,
+          path: mappingPath,
+          contentType: 'folder',
+          pageId,
+          sha: null,
+          title,
+        });
+      }
 
       cache.set(mappingPath, pageId);
       parentId = pageId;
@@ -456,7 +573,7 @@ export class GithubSyncService {
     source: SourceRow,
     seenPaths: Set<string>,
     actor: User,
-  ) {
+  ): Promise<{ path: string; error: string }[]> {
     const mapped = await this.db
       .selectFrom('githubFiles')
       .select(['id', 'path', 'pageId'])
@@ -465,10 +582,13 @@ export class GithubSyncService {
       .where('status', '=', 'synced')
       .execute();
 
+    const failures: { path: string; error: string }[] = [];
     for (const row of mapped) {
       if (seenPaths.has(row.path)) continue;
-      await this.deleteMapping(source, row.pageId, row.id, actor);
+      const result = await this.deleteMapping(source, row.pageId, row.id, actor);
+      if (!result.ok) failures.push({ path: row.path, error: result.error ?? 'delete_failed' });
     }
+    return failures;
   }
 
   private async deleteMapping(
@@ -476,14 +596,40 @@ export class GithubSyncService {
     pageId: string | null,
     mappingId: string,
     actor: User,
-  ) {
+  ): Promise<{ ok: boolean; error?: string }> {
     if (pageId) {
-      try {
-        await this.pageRepo.removePage(pageId, actor.id, source.workspaceId);
-      } catch (err) {
-        this.logger.warn(
-          `Failed to remove page ${pageId}: ${err instanceof Error ? err.message : err}`,
+      // A4: a directory's README shares its page with the directory itself
+      // (see syncMarkdownFile's isIndex branch). Removing just the README
+      // must not take the folder page — and every child page under it —
+      // down with it, so check for that sharing before ever calling
+      // removePage.
+      const folderSibling = await this.db
+        .selectFrom('githubFiles')
+        .select(['title'])
+        .where('sourceId', '=', source.id)
+        .where('pageId', '=', pageId)
+        .where('contentType', '=', 'folder')
+        .where('status', '=', 'synced')
+        .executeTakeFirst();
+
+      if (folderSibling) {
+        // the README supplied this page's content; with it gone, the page
+        // reverts to being just the (still very much alive) folder page
+        await this.pageService.updatePageContent(pageId, '<p></p>', 'replace', 'html', actor);
+        await this.pageRepo.updatePage(
+          { title: folderSibling.title, lastUpdatedById: actor.id, updatedAt: new Date() },
+          pageId,
         );
+      } else {
+        try {
+          await this.pageRepo.removePage(pageId, actor.id, source.workspaceId);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          this.logger.warn(`Failed to remove page ${pageId}: ${message}`);
+          // B5: leave the mapping 'synced' so the next rescan retries the
+          // removal instead of pretending it already happened
+          return { ok: false, error: message };
+        }
       }
     }
 
@@ -492,6 +638,8 @@ export class GithubSyncService {
       .set({ status: 'deleted', updatedAt: new Date() })
       .where('id', '=', mappingId)
       .execute();
+
+    return { ok: true };
   }
 
   // --------------------------------------------------------------- webhook
@@ -564,9 +712,9 @@ export class GithubSyncService {
   }
 
   private async applyPushToSource(source: SourceRow, before: string, after: string) {
-    const token = await this.githubApi.getInstallationToken(
-      source.githubInstallationId,
-    );
+    // re-fetched before every request — see fullSync's getToken for why a
+    // single token held across the whole run isn't safe (B7)
+    const getToken = () => this.githubApi.getInstallationToken(source.githubInstallationId);
 
     // a force push or a first-ever sync has no usable base to compare against
     const isComparable = before && !/^0+$/.test(before);
@@ -582,7 +730,7 @@ export class GithubSyncService {
         source.repo,
         before,
         after,
-        token,
+        await getToken(),
       );
     } catch {
       // compare fails when history was rewritten — fall back to a full scan
@@ -590,15 +738,44 @@ export class GithubSyncService {
       return;
     }
 
+    if (isCompareSaturated(files.length)) {
+      // A5: GitHub's compare API caps at 300 changed files with no
+      // total-count field, so we can't tell what's missing from this list —
+      // reconcile against `after` directly instead of trusting a partial diff
+      await this.fullSync(source.id, { force: false });
+      return;
+    }
+
+    // A3: real blob shas for this push's target tree, so rewriteAssets can
+    // resolve relative asset links the same way a full sync does. One tree
+    // fetch here beats one API call per link across every changed file.
+    let blobShas: Map<string, string>;
+    try {
+      const tree = await this.githubApi.getTree(source.owner, source.repo, after, await getToken());
+      if (tree.truncated) {
+        // a partial listing can't be trusted to resolve asset links — treat
+        // it the same as compare saturation (A5)
+        await this.fullSync(source.id, { force: false });
+        return;
+      }
+      blobShas = new Map(
+        tree.entries.filter((e) => e.type === 'blob').map((e) => [e.path, e.sha]),
+      );
+    } catch {
+      await this.fullSync(source.id, { force: false });
+      return;
+    }
+
     const prefix = source.rootDir ? `${source.rootDir}/` : '';
     const actor = await this.getActor(source.workspaceId);
     const folderCache = new Map<string, string>();
+    const failures: { path: string; error: string }[] = [];
 
     // assets first, so a page re-synced in the same push picks up fresh bytes
     for (const file of files) {
       if (MARKDOWN_RE.test(file.filename)) continue;
       if (prefix && !file.filename.startsWith(prefix)) continue;
-      await this.refreshAsset(source, file, token);
+      await this.refreshAsset(source, file, await getToken());
     }
 
     for (const file of files) {
@@ -614,7 +791,10 @@ export class GithubSyncService {
             .where('path', '=', file.filename)
             .executeTakeFirst();
           if (mapping) {
-            await this.deleteMapping(source, mapping.pageId, mapping.id, actor);
+            const result = await this.deleteMapping(source, mapping.pageId, mapping.id, actor);
+            if (!result.ok) {
+              failures.push({ path: file.filename, error: result.error ?? 'delete_failed' });
+            }
           }
           continue;
         }
@@ -631,25 +811,37 @@ export class GithubSyncService {
         // push payloads carry no blob sha for the new content, so fetch by path
         await this.syncMarkdownFile({
           source,
-          token,
+          token: await getToken(),
           repoPath: file.filename,
           sha: null,
-          blobShas: new Map(),
+          blobShas,
           actor,
           folderCache,
           force: true,
         });
       } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
         await this.markFileError(source.id, file.filename, err);
-        this.logger.warn(
-          `Push sync failed for ${file.filename}: ${err instanceof Error ? err.message : err}`,
-        );
+        failures.push({ path: file.filename, error: message });
+        this.logger.warn(`Push sync failed for ${file.filename}: ${message}`);
       }
+    }
+
+    if (failures.length > 0) {
+      // B5: a push with per-file failures must fail the job so BullMQ
+      // retries, not report success with the failures buried in the logs
+      const message = this.summarizeFailures('github_push_partial_failure', failures);
+      await this.db
+        .updateTable('githubSources')
+        .set({ lastSyncError: message, lastSyncedAt: new Date(), updatedAt: new Date() })
+        .where('id', '=', source.id)
+        .execute();
+      throw new Error(message);
     }
 
     await this.db
       .updateTable('githubSources')
-      .set({ lastSyncedAt: new Date(), updatedAt: new Date() })
+      .set({ lastSyncedAt: new Date(), lastSyncError: null, updatedAt: new Date() })
       .where('id', '=', source.id)
       .execute();
   }
@@ -714,6 +906,46 @@ export class GithubSyncService {
       .execute();
   }
 
+  /**
+   * A2: confirm the write actually reached the database.
+   *
+   * Hocuspocus swallows every error thrown by `onStoreDocument` — see
+   * `storeDocumentHooks()` in @hocuspocus/server, which catches, logs
+   * "Document stays in memory to avoid data loss", and returns. That is
+   * deliberate (a failed autosave must not crash an editing session), but it
+   * means `updatePageContent()` resolves happily even when the transaction
+   * that should have written `content` / `textContent` / `ydoc` failed. The
+   * sync would then record the blob SHA as synced and, because of the SHA
+   * shortcut, never look at that file again.
+   *
+   * Reading the row back is independent of that hook's error handling and
+   * works across nodes, unlike an in-memory failure flag on whichever node
+   * happened to own the document.
+   *
+   * `textContent` is the comparison key, not `content`: htmlToJson() stamps a
+   * freshly generated `id` on every node, so the same HTML converted twice is
+   * never deeply equal, and the stored document has additionally been through
+   * a Yjs round-trip. `textContent` is what the store itself derives with
+   * jsonToText(), so it is stable on both sides.
+   *
+   * Residual gap: a change that alters only formatting or attributes while
+   * leaving the text identical would pass this check even if the store
+   * failed. Catching that needs an id-insensitive structural diff.
+   */
+  private async assertContentPersisted(pageId: string, html: string) {
+    const expected = jsonToText(htmlToJson(html));
+    const page = await this.pageRepo.findById(pageId, {
+      includeTextContent: true,
+    });
+
+    if (!page || (page.textContent ?? '') !== expected) {
+      throw new Error(
+        `page_content_not_persisted: ${pageId} — the collaboration store ` +
+          'reported success but the database still holds different content',
+      );
+    }
+  }
+
   // --------------------------------------------------------------- helpers
 
   private async loadSource(sourceId: string): Promise<SourceRow | null> {
@@ -725,15 +957,18 @@ export class GithubSyncService {
     return (row as unknown as SourceRow) ?? null;
   }
 
-  private async upsertFileMapping(values: {
-    sourceId: string;
-    path: string;
-    contentType: string;
-    pageId: string | null;
-    sha: string | null;
-    title: string | null;
-  }) {
-    await this.db
+  private async upsertFileMapping(
+    values: {
+      sourceId: string;
+      path: string;
+      contentType: string;
+      pageId: string | null;
+      sha: string | null;
+      title: string | null;
+    },
+    trx?: KyselyTransaction,
+  ) {
+    await dbOrTx(this.db, trx)
       .insertInto('githubFiles')
       .values({ ...values, status: 'synced' })
       .onConflict((oc) =>

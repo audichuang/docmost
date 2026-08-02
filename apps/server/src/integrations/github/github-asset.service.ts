@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { load } from 'cheerio';
 import { Readable } from 'stream';
-import { v7 } from 'uuid';
 import * as path from 'path';
 import { InjectKysely } from 'nestjs-kysely';
 import { KyselyDB } from '@docmost/db/types/kysely.types';
@@ -10,7 +9,7 @@ import { getAttachmentFolderPath } from '../../core/attachment/attachment.utils'
 import { AttachmentType } from '../../core/attachment/attachment.constants';
 import { getMimeType } from '../../common/helpers';
 import { GithubApiService } from './github-api.service';
-import { resolveRepoPath } from './github.utils';
+import { deriveAssetAttachmentId, resolveRepoPath } from './github.utils';
 
 const MAX_ASSET_BYTES = 50 * 1024 * 1024;
 
@@ -36,6 +35,15 @@ export type AssetRewriteContext = {
  *
  * An asset whose blob sha is unchanged since the last sync keeps its existing
  * attachment, so re-syncing a repo does not re-upload every image.
+ *
+ * Residual risk: the storage upload and the two DB writes below are not one
+ * distributed transaction. If the process dies after the upload but before
+ * the attachments/github_files rows commit, the uploaded object is orphaned
+ * in storage — the deterministic id means the *next* successful run
+ * overwrites it rather than piling up a new one, but nothing proactively
+ * reclaims storage bytes for a path that's never retried (eg. removed from
+ * the doc before that retry happens). A storage GC pass would close this;
+ * out of scope here.
  */
 @Injectable()
 export class GithubAssetService {
@@ -103,11 +111,17 @@ export class GithubAssetService {
       .where('contentType', '=', 'asset')
       .executeTakeFirst();
 
-    if (existing?.attachmentId && existing.sha === sha) {
+    // deterministic per (source, path): a retry after a partial failure, or
+    // a later sync that finds the same content changed, reuses this exact
+    // id instead of minting a new row that orphans the old one
+    const attachmentId = deriveAssetAttachmentId(ctx.source.id, repoPath);
+    const isFirstTimeForThisPath = existing?.attachmentId !== attachmentId;
+
+    if (!isFirstTimeForThisPath && existing?.sha === sha) {
       const attachment = await this.db
         .selectFrom('attachments')
         .select(['id', 'fileName'])
-        .where('id', '=', existing.attachmentId)
+        .where('id', '=', attachmentId)
         .executeTakeFirst();
       if (attachment) return attachment;
     }
@@ -124,7 +138,6 @@ export class GithubAssetService {
       return null;
     }
 
-    const attachmentId = v7();
     const fileName = path.posix.basename(repoPath);
     const fileExt = path.posix.extname(fileName);
     const storageFilePath = `${getAttachmentFolderPath(
@@ -132,48 +145,73 @@ export class GithubAssetService {
       ctx.source.workspaceId,
     )}/${attachmentId}/${fileName}`;
 
-    await this.storageService.uploadStream(
-      storageFilePath,
-      Readable.from(buffer),
-      { recreateClient: true },
-    );
+    try {
+      await this.storageService.uploadStream(
+        storageFilePath,
+        Readable.from(buffer),
+        { recreateClient: true },
+      );
 
-    await this.db
-      .insertInto('attachments')
-      .values({
-        id: attachmentId,
-        filePath: storageFilePath,
-        fileName,
-        fileSize: buffer.length,
-        mimeType: getMimeType(fileName),
-        type: AttachmentType.File,
-        fileExt,
-        creatorId: ctx.actorId,
-        workspaceId: ctx.source.workspaceId,
-        spaceId: ctx.source.spaceId,
-      })
-      .execute();
+      // upsert, not insert: the id is stable across retries/content updates
+      await this.db
+        .insertInto('attachments')
+        .values({
+          id: attachmentId,
+          filePath: storageFilePath,
+          fileName,
+          fileSize: buffer.length,
+          mimeType: getMimeType(fileName),
+          type: AttachmentType.File,
+          fileExt,
+          creatorId: ctx.actorId,
+          workspaceId: ctx.source.workspaceId,
+          spaceId: ctx.source.spaceId,
+        })
+        .onConflict((oc) =>
+          oc.column('id').doUpdateSet({
+            filePath: storageFilePath,
+            fileName,
+            fileSize: buffer.length,
+            mimeType: getMimeType(fileName),
+            fileExt,
+            updatedAt: new Date(),
+          }),
+        )
+        .execute();
 
-    await this.db
-      .insertInto('githubFiles')
-      .values({
-        sourceId: ctx.source.id,
-        path: repoPath,
-        contentType: 'asset',
-        sha,
-        attachmentId,
-        status: 'synced',
-      })
-      .onConflict((oc) =>
-        oc.columns(['sourceId', 'path']).doUpdateSet({
+      await this.db
+        .insertInto('githubFiles')
+        .values({
+          sourceId: ctx.source.id,
+          path: repoPath,
+          contentType: 'asset',
           sha,
           attachmentId,
           status: 'synced',
-          error: null,
-          updatedAt: new Date(),
-        }),
-      )
-      .execute();
+        })
+        .onConflict((oc) =>
+          oc.columns(['sourceId', 'path']).doUpdateSet({
+            sha,
+            attachmentId,
+            status: 'synced',
+            error: null,
+            updatedAt: new Date(),
+          }),
+        )
+        .execute();
+    } catch (err) {
+      if (isFirstTimeForThisPath) {
+        // nothing referenced this row yet; a half-finished import must not
+        // leave it behind for nothing to ever clean up. The uploaded storage
+        // bytes are not rolled back here — see the class doc comment.
+        await this.db
+          .deleteFrom('attachments')
+          .where('id', '=', attachmentId)
+          .execute()
+          .catch(() => {});
+      }
+      throw err;
+    }
 
     return { id: attachmentId, fileName };
   }

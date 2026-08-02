@@ -1,6 +1,10 @@
 import {
   assertRepoCoordinates,
+  deriveAssetAttachmentId,
   extractTitle,
+  GITHUB_COMPARE_FILE_LIMIT,
+  isCompareSaturated,
+  isPageAlive,
   normalizeDir,
   resolveRepoPath,
   signInstallState,
@@ -177,6 +181,59 @@ describe('titleFromSegment', () => {
   it('humanises separators', () => {
     expect(titleFromSegment('getting-started_guide')).toBe(
       'getting started guide',
+    );
+  });
+});
+
+describe('isPageAlive', () => {
+  it('is false for a missing page', () => {
+    expect(isPageAlive(null)).toBe(false);
+    expect(isPageAlive(undefined)).toBe(false);
+  });
+
+  it('is false for a soft-deleted page', () => {
+    expect(isPageAlive({ deletedAt: new Date() })).toBe(false);
+  });
+
+  it('is true for a page with no deletedAt', () => {
+    expect(isPageAlive({ deletedAt: null })).toBe(true);
+  });
+});
+
+describe('isCompareSaturated', () => {
+  it('is false under the cap', () => {
+    expect(isCompareSaturated(GITHUB_COMPARE_FILE_LIMIT - 1)).toBe(false);
+    expect(isCompareSaturated(0)).toBe(false);
+  });
+
+  /**
+   * Regression: a push changing exactly (or more than) 300 files used to be
+   * processed as if the compare response were the whole story, silently
+   * dropping whatever GitHub didn't return.
+   */
+  it('is true at and above the cap', () => {
+    expect(isCompareSaturated(GITHUB_COMPARE_FILE_LIMIT)).toBe(true);
+    expect(isCompareSaturated(GITHUB_COMPARE_FILE_LIMIT + 1)).toBe(true);
+  });
+});
+
+describe('deriveAssetAttachmentId', () => {
+  it('is stable for the same source and path', () => {
+    const a = deriveAssetAttachmentId('source-1', 'docs/img/logo.png');
+    const b = deriveAssetAttachmentId('source-1', 'docs/img/logo.png');
+    expect(a).toBe(b);
+  });
+
+  it('differs across paths and across sources', () => {
+    const base = deriveAssetAttachmentId('source-1', 'docs/img/logo.png');
+    expect(deriveAssetAttachmentId('source-1', 'docs/img/other.png')).not.toBe(base);
+    expect(deriveAssetAttachmentId('source-2', 'docs/img/logo.png')).not.toBe(base);
+  });
+
+  it('produces a valid uuid', () => {
+    const id = deriveAssetAttachmentId('source-1', 'docs/img/logo.png');
+    expect(id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     );
   });
 });
