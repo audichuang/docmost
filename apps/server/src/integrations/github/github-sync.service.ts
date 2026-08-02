@@ -530,13 +530,22 @@ export class GithubSyncService {
         const page = await this.pageRepo.findById(pageId);
         if (!isPageAlive(page)) {
           pageId = null;
-        } else if (page.parentPageId !== (parentId ?? null)) {
+        } else {
           // B4: reconciled on every sync — a directory that moved must
-          // carry its page along, not just a file detected as renamed
-          await this.pageRepo.updatePage(
-            { parentPageId: parentId ?? null, updatedAt: new Date() },
-            pageId,
-          );
+          // carry its page along, not just a file detected as renamed.
+          // isLocked is reconciled the same way so folder pages created
+          // before the lock existed get picked up by the next scan.
+          const patch: Record<string, unknown> = {};
+          if (page.parentPageId !== (parentId ?? null)) {
+            patch.parentPageId = parentId ?? null;
+          }
+          if (!page.isLocked) patch.isLocked = true;
+          if (Object.keys(patch).length) {
+            await this.pageRepo.updatePage(
+              { ...patch, updatedAt: new Date() },
+              pageId,
+            );
+          }
         }
       }
 
@@ -550,6 +559,14 @@ export class GithubSyncService {
             { title, spaceId: source.spaceId, parentPageId: parentId ?? undefined },
             trx,
           );
+
+          // Mirrored structure is as read-only as mirrored content. A folder
+          // that has a README shares its page with that markdown file and
+          // gets locked either way; one without a README used to be the only
+          // writable page in a synced tree — and deleting it takes the locked
+          // children with it. Locked unconditionally, matching how markdown
+          // pages are locked regardless of source.mode.
+          await this.pageRepo.updatePage({ isLocked: true }, created.id, trx);
 
           await this.upsertFileMapping(
             {

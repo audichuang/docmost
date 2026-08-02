@@ -59,7 +59,13 @@ function PageContent({ pageSlug }: { pageSlug: string | undefined }) {
   const { data: space } = useGetSpaceBySlugQuery(page?.space?.slug);
 
   const hasBases = useHasFeature(Feature.BASES);
-  const canEdit = !page?.deletedAt && (page?.permissions?.canEdit ?? false);
+  // isLocked is enforced server-side on every write path (REST guards plus a
+  // read-only collab connection). Reflecting it here is what stops the editor
+  // accepting keystrokes the server will silently drop — typed into a locked
+  // page they survive a reload via IndexedDB and look saved, but no one else
+  // ever sees them.
+  const canEdit =
+    !page?.deletedAt && !page?.isLocked && (page?.permissions?.canEdit ?? false);
   const canComment =
     canEdit ||
     (space?.settings?.comments?.allowViewerComments === true);
@@ -176,6 +182,7 @@ function PageContent({ pageSlug }: { pageSlug: string | undefined }) {
           creator={page.creator}
           contributors={page.contributors}
           canComment={canComment}
+          isLocked={page.isLocked}
         />
         <MemoizedHistoryModal pageId={page.id} />
       </div>

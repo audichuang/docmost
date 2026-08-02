@@ -189,6 +189,24 @@ export class AttachmentController {
       if (attachment.creatorId !== user.id) {
         throw new NotFoundException();
       }
+    } else if (!attachment.pageId && attachment.spaceId) {
+      // Space-scoped asset: belongs to a space but to no single page. Only
+      // the GitHub sync produces these — one repo image can be referenced
+      // from many synced pages, so pinning it to one page id would 404 it
+      // on all the others.
+      //
+      // ponytail: space-level Read is the whole check here. That drops the
+      // per-page restriction layer validateCanView() adds, so a space member
+      // can fetch the asset even when one page using it is restricted. Give
+      // these attachments a real owner list if per-page restrictions ever
+      // need to apply to them.
+      const ability = await this.spaceAbility.createForUser(
+        user,
+        attachment.spaceId,
+      );
+      if (ability.cannot(SpaceCaslAction.Read, SpaceCaslSubject.Page)) {
+        throw new NotFoundException();
+      }
     } else {
       if (!attachment.pageId || !attachment.spaceId) {
         throw new NotFoundException();
@@ -240,12 +258,16 @@ export class AttachmentController {
     }
 
     const attachment = await this.attachmentRepo.findById(fileId);
+    // The pageId equality check stops a token issued for page A from fetching
+    // page B's attachment. A space-scoped asset (no owning page — see
+    // getFile) has nothing to compare against, but the token still binds it:
+    // share tokens are only minted for attachment ids found in that page's
+    // own content, so holding one already proves the asset belongs there.
     if (
       !attachment ||
       attachment.workspaceId !== workspace.id ||
-      !attachment.pageId ||
       !attachment.spaceId ||
-      jwtPayload.pageId !== attachment.pageId
+      (attachment.pageId && jwtPayload.pageId !== attachment.pageId)
     ) {
       throw new NotFoundException('File not found');
     }
