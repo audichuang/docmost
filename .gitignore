@@ -41,3 +41,6 @@ lerna-debug.log*
 .nx
 .nx/installation
 .nx/cache
+
+# Orca 的 worktree 暫存區(.orca/drops 曾經收過下載的私鑰)
+.orca/
