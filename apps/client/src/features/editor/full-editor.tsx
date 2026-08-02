@@ -53,6 +53,7 @@ export interface FullEditorProps {
   creator?: PageUser;
   contributors?: IContributor[];
   canComment?: boolean;
+  isLocked?: boolean;
 }
 
 export function FullEditor({
@@ -65,6 +66,7 @@ export function FullEditor({
   creator,
   contributors,
   canComment,
+  isLocked,
 }: FullEditorProps) {
   const [user] = useAtom(userAtom);
   const fullPageWidth = user.settings?.preferences?.fullPageWidth;
@@ -114,6 +116,7 @@ export function FullEditor({
         editable={editable}
         content={content}
         canComment={canComment}
+        isLocked={isLocked}
       />
       <EmptyPageGetStarted pageId={pageId} editable={editable} />
     </Container>

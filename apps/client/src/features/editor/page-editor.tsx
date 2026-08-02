@@ -88,6 +88,7 @@ interface PageEditorProps {
   editable: boolean;
   content: any;
   canComment?: boolean;
+  isLocked?: boolean;
 }
 
 export default function PageEditor({
@@ -95,6 +96,7 @@ export default function PageEditor({
   editable,
   content,
   canComment,
+  isLocked,
 }: PageEditorProps) {
   const { t } = useTranslation();
   const { data: collabQuery, refetch: refetchCollabToken } = useCollabToken();
@@ -153,6 +155,7 @@ export default function PageEditor({
               editable={editable}
               content={content}
               canComment={canComment}
+              isLocked={isLocked}
             />
           </HocuspocusRoom>
         </HocuspocusProviderWebsocketComponent>
@@ -168,6 +171,7 @@ function CollabPageEditor({
   editable,
   content,
   canComment,
+  isLocked,
 }: PageEditorProps) {
   const { t } = useTranslation();
   const provider = useHocuspocusProvider();
@@ -203,6 +207,19 @@ function CollabPageEditor({
   const { handleScrollTo } = useEditorScroll({ canScroll });
 
   useEffect(() => {
+    // A locked page's local copy is never authoritative. The socket is
+    // read-only server-side, so anything this browser manages to put in
+    // IndexedDB is by definition state the server rejected — and it merges
+    // back in on every load, showing the author edits nobody else can see.
+    // Take the server's copy as the only source.
+    //
+    // ponytail: existing poisoned stores are skipped, not deleted. Call
+    // clearData() here too if the orphaned rows ever matter.
+    if (isLocked) {
+      setIsLocalSynced(true);
+      return;
+    }
+
     const local = new IndexeddbPersistence(
       provider.configuration.name,
       provider.document,
@@ -211,7 +228,7 @@ function CollabPageEditor({
     return () => {
       local.destroy();
     };
-  }, [provider]);
+  }, [provider, isLocked]);
 
   useHocuspocusEvent("synced", ({ state }) => setIsRemoteSynced(state));
   useHocuspocusEvent("status", ({ status }) => setYjsConnectionStatus(status));

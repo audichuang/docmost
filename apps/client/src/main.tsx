@@ -22,7 +22,8 @@ import {
   isPostHogEnabled,
 } from "@/lib/config.ts";
 import posthog from "posthog-js";
-import { startR2TokenRefresh } from "@/lib/r2-token.ts";
+import { appendR2Token, startR2TokenRefresh } from "@/lib/r2-token.ts";
+import { setFileUrlTransformer } from "@docmost/editor-ext";
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -47,12 +48,18 @@ if (isCloud() && isPostHogEnabled) {
 const container = document.getElementById("root") as HTMLElement;
 const root = (container as any).__reactRoot ??= ReactDOM.createRoot(container);
 
-// getFileUrl() appends the R2 token synchronously and nothing re-renders when
-// a token arrives late, so the first token has to be resolved before anything
+// The token is appended synchronously while rendering and nothing re-renders
+// when one arrives late, so the first token has to be resolved before anything
 // paints. The fetch inside is time-bounded, so an unreachable token endpoint
 // delays startup by seconds rather than blanking the app. Resolves immediately
 // when R2 protection is disabled.
 await startR2TokenRefresh();
+
+// Editor media (image/video/audio/drawio/excalidraw) is rendered by plain DOM
+// node views in editor-ext, which build their src through normalizeFileUrl —
+// not through getFileUrl. Without this the token reaches only the upload
+// placeholder's React view, i.e. no real image ever gets one.
+setFileUrlTransformer(appendR2Token);
 
 root.render(
   <BrowserRouter>
