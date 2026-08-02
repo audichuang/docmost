@@ -40,7 +40,9 @@ async function fetchToken(): Promise<number> {
  * late. Resolves immediately when R2 protection is not configured.
  * Safe to call more than once.
  */
-export async function startR2TokenRefresh(): Promise<void> {
+export async function startR2TokenRefresh(opts?: {
+  waitMs?: number;
+}): Promise<void> {
   if (!isR2TokenEnabled() || refreshTimer) return;
 
   const scheduleNext = (delay: number) => {
@@ -56,12 +58,20 @@ export async function startR2TokenRefresh(): Promise<void> {
     }
   };
 
-  try {
-    scheduleNext(await fetchToken());
-  } catch {
-    // a missing token must not block the app from starting
-    scheduleNext(30_000);
-  }
+  const first = (async () => {
+    try {
+      scheduleNext(await fetchToken());
+    } catch {
+      // a missing token must not block the app from starting
+      scheduleNext(30_000);
+    }
+  })();
+
+  // bounded wait: a slow or dead token endpoint must not blank the app
+  await Promise.race([
+    first,
+    new Promise<void>((resolve) => setTimeout(resolve, opts?.waitMs ?? 1500)),
+  ]);
 }
 
 /**

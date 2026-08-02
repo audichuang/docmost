@@ -19,6 +19,8 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { InjectKysely } from 'nestjs-kysely';
 import { KyselyDB } from '@docmost/db/types/kysely.types';
+import { PagePermissionRepo } from '@docmost/db/repos/page/page-permission.repo';
+import { PageRepo } from '@docmost/db/repos/page/page.repo';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Public } from '../../common/decorators/public.decorator';
 import { SkipTransform } from '../../common/decorators/skip-transform.decorator';
@@ -26,6 +28,11 @@ import { AuthUser } from '../../common/decorators/auth-user.decorator';
 import { AuthWorkspace } from '../../common/decorators/auth-workspace.decorator';
 import { User, Workspace } from '@docmost/db/types/entity.types';
 import SpaceAbilityFactory from '../../core/casl/abilities/space-ability.factory';
+import WorkspaceAbilityFactory from '../../core/casl/abilities/workspace-ability.factory';
+import {
+  WorkspaceCaslAction,
+  WorkspaceCaslSubject,
+} from '../../core/casl/interfaces/workspace-ability.type';
 import {
   SpaceCaslAction,
   SpaceCaslSubject,
@@ -49,6 +56,9 @@ export class GithubController {
     private readonly githubApi: GithubApiService,
     private readonly sync: GithubSyncService,
     private readonly spaceAbility: SpaceAbilityFactory,
+    private readonly workspaceAbility: WorkspaceAbilityFactory,
+    private readonly pageRepo: PageRepo,
+    private readonly pagePermissionRepo: PagePermissionRepo,
     private readonly env: EnvironmentService,
     @InjectKysely() private readonly db: KyselyDB,
     @InjectQueue(QueueName.GITHUB_QUEUE) private readonly githubQueue: Queue,
@@ -62,7 +72,12 @@ export class GithubController {
   // ------------------------------------------------------- installations
 
   @Get('installations')
-  async listInstallations(@AuthWorkspace() workspace: Workspace) {
+  async listInstallations(
+    @AuthWorkspace() workspace: Workspace,
+    @AuthUser() user: User,
+  ) {
+    this.assertWorkspaceAdmin(user, workspace);
+
     return this.db
       .selectFrom('githubInstallations')
       .selectAll()
@@ -73,12 +88,21 @@ export class GithubController {
 
   @HttpCode(200)
   @Post('installations/sync')
-  async syncInstallations(@AuthWorkspace() workspace: Workspace) {
+  async syncInstallations(
+    @AuthWorkspace() workspace: Workspace,
+    @AuthUser() user: User,
+  ) {
+    this.assertWorkspaceAdmin(user, workspace);
     return this.githubApi.syncInstallationsFromGitHub(workspace.id);
   }
 
   @Get('installations/auth-url')
-  async getAuthUrl(@AuthWorkspace() workspace: Workspace) {
+  async getAuthUrl(
+    @AuthWorkspace() workspace: Workspace,
+    @AuthUser() user: User,
+  ) {
+    this.assertWorkspaceAdmin(user, workspace);
+
     const appSlug = this.env.getGithubAppSlug();
     if (!appSlug) throw new NotFoundException('github_app_not_configured');
 
@@ -128,7 +152,10 @@ export class GithubController {
   async deleteInstallation(
     @Param('id', new ParseUUIDPipe()) id: string,
     @AuthWorkspace() workspace: Workspace,
+    @AuthUser() user: User,
   ) {
+    this.assertWorkspaceAdmin(user, workspace);
+
     await this.db
       .deleteFrom('githubInstallations')
       .where('id', '=', id)
@@ -171,6 +198,7 @@ export class GithubController {
     @AuthUser() user: User,
   ) {
     await this.assertCanEditSpace(user, dto.spaceId);
+    await this.assertCanMountUnder(user, dto.rootPageId, dto.spaceId);
 
     const source = await this.sync.createSource(workspace.id, user.id, dto);
     const job = await this.githubQueue.add(QueueJob.GITHUB_FULL_SYNC, {
@@ -200,9 +228,22 @@ export class GithubController {
 
   /** Sync progress lives on the BullMQ job, so any node can serve this. */
   @Get('sources/jobs/:jobId')
-  async jobStatus(@Param('jobId') jobId: string) {
+  async jobStatus(
+    @Param('jobId') jobId: string,
+    @AuthWorkspace() workspace: Workspace,
+  ) {
     const job = await this.githubQueue.getJob(jobId);
     if (!job) return { state: 'unknown', progress: null };
+
+    // job ids are guessable, so never expose another tenant's repo paths
+    const source = await this.db
+      .selectFrom('githubSources')
+      .select(['id'])
+      .where('id', '=', job.data?.sourceId ?? '')
+      .where('workspaceId', '=', workspace.id)
+      .executeTakeFirst();
+
+    if (!source) return { state: 'unknown', progress: null };
 
     return {
       state: await job.getState(),
@@ -240,6 +281,16 @@ export class GithubController {
 
   // ------------------------------------------------------------- guards
 
+  /** Connecting or removing a GitHub account is a workspace-level setting. */
+  private assertWorkspaceAdmin(user: User, workspace: Workspace) {
+    const ability = this.workspaceAbility.createForUser(user, workspace);
+    if (
+      ability.cannot(WorkspaceCaslAction.Manage, WorkspaceCaslSubject.Settings)
+    ) {
+      throw new ForbiddenException();
+    }
+  }
+
   private async assertInstallation(installationId: string, workspaceId: string) {
     const row = await this.db
       .selectFrom('githubInstallations')
@@ -256,6 +307,29 @@ export class GithubController {
     if (ability.cannot(SpaceCaslAction.Edit, SpaceCaslSubject.Page)) {
       throw new ForbiddenException();
     }
+  }
+
+  /**
+   * A repo-root README is written straight onto the mount page, so mounting
+   * requires edit rights on that page — space-level rights are not enough
+   * when the page carries its own restrictions.
+   */
+  private async assertCanMountUnder(
+    user: User,
+    rootPageId: string | undefined,
+    spaceId: string,
+  ) {
+    if (!rootPageId) return;
+
+    const page = await this.pageRepo.findById(rootPageId);
+    if (!page || page.deletedAt || page.spaceId !== spaceId) {
+      throw new NotFoundException('root_page_not_found');
+    }
+
+    const { hasAnyRestriction, canEdit } =
+      await this.pagePermissionRepo.canUserEditPage(user.id, rootPageId);
+
+    if (hasAnyRestriction && !canEdit) throw new ForbiddenException();
   }
 
   private async assertSourceAccess(
