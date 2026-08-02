@@ -162,6 +162,36 @@ export class PersistenceExtension implements Extension {
       });
     } catch (err) {
       this.logger.error(`Failed to update page ${pageId}`, err);
+
+      // A2: rethrow instead of swallowing. Note this does NOT, by itself,
+      // make a direct-connection caller's `await connection.disconnect()`
+      // reject: Hocuspocus's own storeDocumentHooks()
+      // (@hocuspocus/server/src/Hocuspocus.ts) wraps the entire
+      // onStoreDocument/afterStoreDocument chain in a try/catch that always
+      // logs-and-swallows, unconditionally, regardless of whether the store
+      // was triggered by an interactive websocket edit or a server-side
+      // DirectConnection (the sync's write path) — that's intentional on
+      // Hocuspocus's part, so a failed autosave during interactive editing
+      // never crashes the process while the document just stays in memory
+      // for a retry. We can't change that behavior from an extension, and
+      // patching node_modules or collaboration.handler.ts (owned by another
+      // change) is out of scope here.
+      //
+      // What rethrowing here DOES fix: it stops `afterStoreDocument` (and
+      // any extension registered after this one) from running as though the
+      // save had succeeded, and it keeps this hook honest about its own
+      // outcome instead of asserting success unconditionally. It is also
+      // exactly what Extension.onStoreDocument is documented to do on
+      // failure, and it's the safe choice: Hocuspocus's swallow makes it
+      // impossible for this rethrow to escape as an unhandled rejection.
+      //
+      // Fully surfacing this to a direct-connection writer (e.g. the GitHub
+      // sync via PageService.updatePageContent) additionally needs
+      // CollaborationHandler.withYdocConnection to check some failure
+      // signal after `connection.disconnect()` resolves — that file isn't
+      // in scope for this change, so that half of the gap remains and is
+      // called out in the handoff notes.
+      throw err;
     }
 
     if (page) {

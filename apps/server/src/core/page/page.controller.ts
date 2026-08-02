@@ -276,6 +276,8 @@ export class PageController {
       throw new NotFoundException('Page not found');
     }
 
+    this.assertPageNotLocked(page);
+
     const { hasRestriction } = await this.pageAccessService.validateCanEdit(
       page,
       user,
@@ -344,6 +346,7 @@ export class PageController {
       });
     } else {
       // User with edit permission can delete
+      this.assertPageNotLocked(page);
       await this.pageAccessService.validateCanEdit(page, user);
 
       await this.pageService.removePage(
@@ -581,6 +584,8 @@ export class PageController {
       throw new BadRequestException('Page is already in this space');
     }
 
+    this.assertPageNotLocked(movedPage);
+
     const abilities = await Promise.all([
       this.spaceAbility.createForUser(user, movedPage.spaceId),
       this.spaceAbility.createForUser(user, dto.spaceId),
@@ -712,6 +717,8 @@ export class PageController {
       throw new NotFoundException('Moved page not found');
     }
 
+    this.assertPageNotLocked(movedPage);
+
     const ability = await this.spaceAbility.createForUser(
       user,
       movedPage.spaceId,
@@ -747,5 +754,26 @@ export class PageController {
     await this.pageAccessService.validateCanView(page, user);
 
     return this.pageService.getPageBreadCrumbs(page.id);
+  }
+
+  /**
+   * B2: pages mirrored from an external source (e.g. GitHub sync) are
+   * marked isLocked and are meant to be read-only for humans. Locking was
+   * previously enforced only at collab-socket authenticate time
+   * (authentication.extension.ts), which left every REST mutation of the
+   * page free to write through. This is the single choke point for the
+   * REST endpoints that mutate a page directly: update, trash, move, and
+   * move-to-space. Reading, commenting, and duplicating (view-only) are
+   * unaffected. Server-side sync writes never go through this controller —
+   * they call PageService.updatePageContent, which routes through
+   * CollaborationGateway.openDirectConnection and bypasses onAuthenticate —
+   * so they're unaffected by this guard too.
+   */
+  private assertPageNotLocked(page: Page): void {
+    if (page.isLocked) {
+      throw new ForbiddenException(
+        'This page is locked and cannot be modified',
+      );
+    }
   }
 }

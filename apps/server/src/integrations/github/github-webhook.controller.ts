@@ -12,10 +12,38 @@ import { RawBodyRequest } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { InjectKysely } from 'nestjs-kysely';
+import { KyselyDB } from '@docmost/db/types/kysely.types';
 import * as crypto from 'crypto';
 import { EnvironmentService } from '../environment/environment.service';
 import { QueueJob, QueueName } from '../queue/constants';
 import { GithubSyncService } from './github-sync.service';
+
+/** A stable id per delivery so a redelivered webhook recreates the *same*
+ *  job (idempotent) instead of being silently dropped or duplicated. */
+export function pushJobId(deliveryId: string): string {
+  return `github-push:${deliveryId}`;
+}
+
+/**
+ * B3: pure replay rule — a delivery only counts as "already handled" once it
+ * has been processed *successfully*.
+ *
+ * `recordDelivery` returning false just means the row already exists; on its
+ * own that is not proof the push was ever queued (the process may have died
+ * between the insert and the `queue.add()` call), so a still-unprocessed row
+ * must go out again.
+ *
+ * A row that was processed but failed (`ok = false`, e.g. GitHub was briefly
+ * unreachable and BullMQ exhausted its attempts) must also be replayable —
+ * GitHub's redelivery is exactly the second chance that case needs.
+ */
+export function shouldReplayDelivery(
+  row: { processed: boolean; ok: boolean | null } | undefined,
+): boolean {
+  if (!row) return true;
+  return !row.processed || row.ok === false;
+}
 
 @Controller('integrations/github')
 export class GithubWebhookController {
@@ -24,6 +52,7 @@ export class GithubWebhookController {
   constructor(
     private readonly env: EnvironmentService,
     private readonly sync: GithubSyncService,
+    @InjectKysely() private readonly db: KyselyDB,
     @InjectQueue(QueueName.GITHUB_QUEUE) private readonly githubQueue: Queue,
   ) {}
 
@@ -43,15 +72,40 @@ export class GithubWebhookController {
 
     const payload = req.body as any;
 
-    // the unique delivery_id is what makes redelivery a no-op
+    // the unique delivery_id is what makes redelivery idempotent
     const isNew = await this.sync.recordDelivery({ deliveryId, event, payload });
+
+    if (event === 'push') {
+      if (!isNew) {
+        // "already recorded" is not the same as "already processed" — only
+        // skip if a prior attempt actually finished the job
+        const existing = await this.db
+          .selectFrom('githubWebhookEvents')
+          .select(['processed', 'ok'])
+          .where('deliveryId', '=', deliveryId)
+          .executeTakeFirst();
+
+        if (!shouldReplayDelivery(existing)) {
+          this.logger.debug(`Ignoring already-processed GitHub delivery ${deliveryId}`);
+          return { ok: true, duplicate: true };
+        }
+        // fall through: recorded but never finished — (re)enqueue below
+      }
+
+      // deterministic jobId: if a job already exists for this delivery
+      // (waiting/active/delayed) this is a no-op; if it never got created
+      // in the first place, this is what actually recovers it
+      await this.githubQueue.add(
+        QueueJob.GITHUB_PUSH,
+        { deliveryId, payload },
+        { jobId: pushJobId(deliveryId) },
+      );
+      return { ok: true };
+    }
+
     if (!isNew) {
       this.logger.debug(`Ignoring duplicate GitHub delivery ${deliveryId}`);
       return { ok: true, duplicate: true };
-    }
-
-    if (event === 'push') {
-      await this.githubQueue.add(QueueJob.GITHUB_PUSH, { deliveryId, payload });
     }
 
     return { ok: true };

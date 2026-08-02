@@ -35,6 +35,26 @@ type ServerId = string;
 type DocumentName = string;
 type SocketId = string;
 
+// C1: only the current owner (identified by the serverId stored as the
+// lock's value) may renew or release it. Both scripts are a single atomic
+// GET-then-SET/DEL so there's no window between checking ownership and
+// acting on it.
+export const RENEW_LOCK_SCRIPT = `
+if redis.call('get', KEYS[1]) == ARGV[1] then
+  return redis.call('set', KEYS[1], ARGV[1], 'PX', ARGV[2])
+else
+  return 0
+end
+`;
+
+export const RELEASE_LOCK_SCRIPT = `
+if redis.call('get', KEYS[1]) == ARGV[1] then
+  return redis.call('del', KEYS[1])
+else
+  return 0
+end
+`;
+
 export class RedisSyncExtension<TCE extends CustomEvents> implements Extension {
   priority = 1000;
   private readonly pub: RedisClient;
@@ -235,20 +255,53 @@ export class RedisSyncExtension<TCE extends CustomEvents> implements Extension {
   };
 
   async maintainLock(documentName: string) {
+    // Clear any interval left over from an earlier call for the same doc
+    // (e.g. onLoadDocument firing again) instead of leaking it.
+    clearInterval(this.locks[documentName]);
     this.locks[documentName] = setInterval(() => {
-      this.pub.set(
-        this.getKey(documentName),
-        this.serverId,
-        'PX',
-        this.lockTTL,
-      );
+      this.renewLock(documentName).catch(() => {});
     }, this.lockTTL / 2);
   }
 
-  async releaseLock(documentName: string) {
+  /**
+   * C1: extend this lock's TTL, but only while we still hold it.
+   *
+   * The old code did an unconditional `SET key serverId PX ttl` here. If
+   * this node paused (GC, event loop stall) past the TTL, Redis would expire
+   * the key, another node could legitimately claim it via `getOrClaimLock`'s
+   * NX, and then this node's stale renewal timer would wake up and blindly
+   * overwrite that node's ownership with its own serverId — two nodes then
+   * both believe they own the document. Compare-and-set via a Lua script
+   * (atomic GET+SET) means only the current owner's renewal actually
+   * extends the TTL; anyone else's is a no-op.
+   */
+  async renewLock(documentName: string): Promise<boolean> {
+    const result = await this.pub.eval(
+      RENEW_LOCK_SCRIPT,
+      1,
+      this.getKey(documentName),
+      this.serverId,
+      this.lockTTL,
+    );
+    return result === 'OK';
+  }
+
+  /**
+   * C1: release this lock, but only while we still hold it — same
+   * compare-and-set reasoning as renewLock. The old unconditional `DEL`
+   * let a node that had already lost the lock (TTL expired, another node
+   * claimed it) delete that node's still-valid lock out from under it.
+   */
+  async releaseLock(documentName: string): Promise<boolean> {
     clearInterval(this.locks[documentName]);
     delete this.locks[documentName];
-    return this.pub.del(this.getKey(documentName));
+    const result = await this.pub.eval(
+      RELEASE_LOCK_SCRIPT,
+      1,
+      this.getKey(documentName),
+      this.serverId,
+    );
+    return result === 1;
   }
 
   private async handleEventLocally<TName extends Extract<keyof TCE, string>>(

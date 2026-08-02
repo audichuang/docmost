@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { load } from 'cheerio';
+import { v5 as uuidv5 } from 'uuid';
 import { BadRequestException } from '@nestjs/common';
 import { GITHUB_OWNER_RE, GITHUB_REPO_RE } from './github.dto';
 
@@ -99,6 +100,43 @@ export function resolveRepoPath(filePath: string, href: string): string | null {
   } catch {
     return normalized;
   }
+}
+
+/**
+ * A page whose mapping row still says 'synced' can nonetheless have been
+ * soft-deleted underneath it (eg. its folder page was trashed by A4's bug,
+ * or by any other unrelated deletion). Every spot that reuses a mapped page
+ * id — the full-sync SHA shortcut, the folder chain, syncMarkdownFile's own
+ * reuse check — must agree on what "still usable" means.
+ */
+export function isPageAlive(
+  page: { deletedAt: unknown } | null | undefined,
+): boolean {
+  return Boolean(page) && !page.deletedAt;
+}
+
+// GitHub's compare API caps the `files` array at 300 entries and gives no
+// total-changed-file count to detect the cutoff by — see
+// https://docs.github.com/en/rest/commits/commits#compare-two-commits.
+// Landing on the cap exactly is the only signal more files were dropped.
+export const GITHUB_COMPARE_FILE_LIMIT = 300;
+
+export function isCompareSaturated(fileCount: number): boolean {
+  return fileCount >= GITHUB_COMPARE_FILE_LIMIT;
+}
+
+// arbitrary fixed namespace for uuid v5 — only its stability matters
+const GITHUB_ASSET_ID_NAMESPACE = '2c9f27d0-7c3d-5b8a-9e3b-2f6b6a8c9d10';
+
+/**
+ * A random id per asset means a retry after a crash (upload done, DB row
+ * not yet committed) or a content update (sha changed) each mint a fresh
+ * attachment that nothing ever points at. Deriving the id from (source,
+ * path) instead makes re-processing the same asset an overwrite, not a
+ * second orphan.
+ */
+export function deriveAssetAttachmentId(sourceId: string, repoPath: string): string {
+  return uuidv5(`${sourceId}:${repoPath}`, GITHUB_ASSET_ID_NAMESPACE);
 }
 
 /**

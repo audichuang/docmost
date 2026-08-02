@@ -140,12 +140,43 @@ export class CollaborationGateway {
     return this.hocuspocus.getDocumentsCount();
   }
 
-  handleYjsEvent<TName extends keyof CollabEventHandlers>(
+  /**
+   * Applies a Yjs collaboration event (e.g. a content update from the GitHub
+   * sync, or a comment mark) to a document.
+   *
+   * When Redis sync is configured, it decides whether to apply the event on
+   * this node or proxy it to whichever node currently owns the document.
+   *
+   * When there is no Redis sync extension (COLLAB_DISABLE_REDIS=true,
+   * single-node mode), `this.redisSync` is null and there is no other node
+   * to proxy to, so the event is applied directly against this node's own
+   * hocuspocus instance instead (the same handlers redisSync would have run
+   * locally, see CollaborationHandler.getHandlers).
+   *
+   * A1 fix: previously this was `return this.redisSync?.handleEvent(...)`,
+   * which resolved to `undefined` with no write at all when redisSync was
+   * null — a silent no-op. Marking this `async` and always either returning
+   * a real write or throwing means a caller's `await` can no longer be lied
+   * to about success.
+   */
+  async handleYjsEvent<TName extends keyof CollabEventHandlers>(
     eventName: TName,
     documentName: string,
     payload: Parameters<CollabEventHandlers[TName]>[1],
   ) {
-    return this.redisSync?.handleEvent(eventName, documentName, payload);
+    if (this.redisSync) {
+      return this.redisSync.handleEvent(eventName, documentName, payload);
+    }
+
+    const handler =
+      this.collabEventsService.getHandlers(this.hocuspocus)[eventName];
+    if (!handler) {
+      throw new Error(`Invalid eventName: ${String(eventName)}`);
+    }
+    // Dynamic dispatch on a generically-indexed handler: same `payload: any`
+    // escape hatch RedisSyncExtension.handleEvent already uses internally
+    // for this exact pattern.
+    return handler(documentName, payload as any);
   }
 
   openDirectConnection(documentName: string, context?: any) {
