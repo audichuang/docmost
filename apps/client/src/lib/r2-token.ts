@@ -5,6 +5,8 @@
  * tokens expire in minutes, page content does not.
  */
 
+const FETCH_TIMEOUT_MS = 2500;
+
 let cachedToken: string | null = null;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -17,7 +19,23 @@ export function isR2TokenEnabled(): boolean {
 }
 
 async function fetchToken(): Promise<number> {
-  const res = await fetch("/api/r2/token", { credentials: "include" });
+  // bounded here rather than by racing the caller: a race that gives up at
+  // 1500ms while the token lands at 1600ms renders every image unauthorised
+  // with nothing to trigger a re-render. Waiting for this to settle means we
+  // either have a token or know there isn't one.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch("/api/r2/token", {
+      credentials: "include",
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
   if (!res.ok) throw new Error(`r2 token request failed: ${res.status}`);
 
   const body = await res.json();
@@ -40,9 +58,7 @@ async function fetchToken(): Promise<number> {
  * late. Resolves immediately when R2 protection is not configured.
  * Safe to call more than once.
  */
-export async function startR2TokenRefresh(opts?: {
-  waitMs?: number;
-}): Promise<void> {
+export async function startR2TokenRefresh(): Promise<void> {
   if (!isR2TokenEnabled() || refreshTimer) return;
 
   const scheduleNext = (delay: number) => {
@@ -58,20 +74,13 @@ export async function startR2TokenRefresh(opts?: {
     }
   };
 
-  const first = (async () => {
-    try {
-      scheduleNext(await fetchToken());
-    } catch {
-      // a missing token must not block the app from starting
-      scheduleNext(30_000);
-    }
-  })();
-
-  // bounded wait: a slow or dead token endpoint must not blank the app
-  await Promise.race([
-    first,
-    new Promise<void>((resolve) => setTimeout(resolve, opts?.waitMs ?? 1500)),
-  ]);
+  try {
+    scheduleNext(await fetchToken());
+  } catch {
+    // a dead endpoint must not stop the app from starting; the fetch is
+    // already time-bounded above, so this resolves promptly either way
+    scheduleNext(30_000);
+  }
 }
 
 /**

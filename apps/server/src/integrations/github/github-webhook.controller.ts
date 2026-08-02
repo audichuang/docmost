@@ -22,7 +22,31 @@ import { GithubSyncService } from './github-sync.service';
 /** A stable id per delivery so a redelivered webhook recreates the *same*
  *  job (idempotent) instead of being silently dropped or duplicated. */
 export function pushJobId(deliveryId: string): string {
-  return `github-push:${deliveryId}`;
+  return `github-push-${deliveryId}`;
+}
+
+/**
+ * BullMQ ignores `add()` for an id that still exists in ANY state, and this
+ * queue deliberately retains failed jobs. Without clearing a terminal job
+ * first, a redelivery or the replay sweep returns success while creating no
+ * work at all — the exact loss B3 set out to fix.
+ */
+export async function enqueuePushJob(
+  queue: Queue,
+  deliveryId: string,
+  payload: unknown,
+): Promise<void> {
+  const jobId = pushJobId(deliveryId);
+  const existing = await queue.getJob(jobId);
+
+  if (existing) {
+    const state = await existing.getState();
+    // already queued or running — leave it alone
+    if (state !== 'completed' && state !== 'failed') return;
+    await existing.remove().catch(() => undefined);
+  }
+
+  await queue.add(QueueJob.GITHUB_PUSH, { deliveryId, payload }, { jobId });
 }
 
 /**
@@ -92,14 +116,9 @@ export class GithubWebhookController {
         // fall through: recorded but never finished — (re)enqueue below
       }
 
-      // deterministic jobId: if a job already exists for this delivery
-      // (waiting/active/delayed) this is a no-op; if it never got created
-      // in the first place, this is what actually recovers it
-      await this.githubQueue.add(
-        QueueJob.GITHUB_PUSH,
-        { deliveryId, payload },
-        { jobId: pushJobId(deliveryId) },
-      );
+      // an in-flight job is left alone; a terminal one is cleared first so
+      // the redelivery actually creates work
+      await enqueuePushJob(this.githubQueue, deliveryId, payload);
       return { ok: true };
     }
 

@@ -5,11 +5,16 @@ import { IsBoolean, IsOptional, IsUUID, Matches } from 'class-validator';
 // they are constrained at the trust boundary rather than escaped downstream.
 export const GITHUB_OWNER_RE =
   /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
-export const GITHUB_REPO_RE = /^[A-Za-z0-9._-]{1,100}$/;
-// a ref may contain slashes (feature/x) but never traversal
-export const GITHUB_REF_RE = /^(?!.*\.\.)[A-Za-z0-9._\-/]{1,255}$/;
-// a subdirectory is only matched against repo paths, never sent to GitHub
-export const REPO_SUBDIR_RE = /^(?!.*\.\.)[A-Za-z0-9._\-/ ]{0,255}$/;
+// '.' and '..' are URL dot-segments and would be normalised out of the path
+export const GITHUB_REPO_RE = /^(?!\.{1,2}$)[A-Za-z0-9._-]{1,100}$/;
+// Git allows almost anything in a ref; only traversal and the characters
+// git itself forbids are excluded, so branches like 'release/v1.2+hotfix' or
+// non-ASCII names still work. The value is percent-encoded before use.
+export const GITHUB_REF_RE =
+  /^(?!.*\.\.)(?!\/)(?!.*\/$)[^\s~^:?*\[\]\\]{1,255}$/;
+// matched against repo paths only, never sent to GitHub — the one thing
+// that must not get through is traversal
+export const REPO_SUBDIR_RE = /^(?!.*\.\.)[^\s\\]{0,255}$|^$/;
 
 export class CreateSourceDto {
   @IsUUID()

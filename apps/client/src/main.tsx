@@ -47,12 +47,12 @@ if (isCloud() && isPostHogEnabled) {
 const container = document.getElementById("root") as HTMLElement;
 const root = (container as any).__reactRoot ??= ReactDOM.createRoot(container);
 
-// getFileUrl() appends the R2 token synchronously, so the first token should
-// be in hand before anything renders — otherwise the first paint of every
-// R2-hosted image 401s. But a dead token endpoint must never hold the app at
-// a blank screen, so the wait is capped and refresh continues in background.
-// Resolves immediately when R2 protection is disabled.
-await startR2TokenRefresh({ waitMs: 1500 });
+// getFileUrl() appends the R2 token synchronously and nothing re-renders when
+// a token arrives late, so the first token has to be resolved before anything
+// paints. The fetch inside is time-bounded, so an unreachable token endpoint
+// delays startup by seconds rather than blanking the app. Resolves immediately
+// when R2 protection is disabled.
+await startR2TokenRefresh();
 
 root.render(
   <BrowserRouter>
