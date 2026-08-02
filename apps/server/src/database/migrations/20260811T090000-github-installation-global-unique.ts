@@ -8,16 +8,25 @@ export async function up(db: Kysely<any>): Promise<void> {
   // Y read workspace X's private repos. An installation belongs to exactly
   // one GitHub account, so it must belong to exactly one workspace here too.
   //
-  // If the pre-fix window already let two workspaces claim the same
-  // installation, keep only the earliest link (the original, presumably
-  // legitimate, linker) and drop the later duplicate(s) before the new
-  // constraint can be added.
-  await sql`
-    delete from github_installations gi
-    using github_installations earlier
-    where gi.installation_id = earlier.installation_id
-      and (gi.created_at, gi.id) > (earlier.created_at, earlier.id)
+  // Refuse to guess. Auto-deleting the "later" row assumes the earliest link
+  // is the legitimate one, which is exactly backwards if an attacker bound the
+  // installation first — and the delete cascades that workspace's sources
+  // away with it. An operator has to decide which workspace keeps it.
+  const duplicates = await sql<{ installation_id: string; workspaces: number }>`
+    select installation_id, count(distinct workspace_id)::int as workspaces
+    from github_installations
+    group by installation_id
+    having count(distinct workspace_id) > 1
   `.execute(db);
+
+  if (duplicates.rows.length > 0) {
+    const ids = duplicates.rows.map((r) => r.installation_id).join(', ');
+    throw new Error(
+      'Cannot enforce one workspace per GitHub installation: these ' +
+        `installation_ids are linked to more than one workspace (${ids}). ` +
+        'Remove the incorrect links in github_installations, then re-run.',
+    );
+  }
 
   await db.schema
     .alterTable('github_installations')

@@ -87,8 +87,12 @@ export class GithubAssetService {
         );
         attachmentIds.push(attachment.id);
       } catch (err) {
-        this.logger.warn(
-          `Failed to import asset ${repoPath} from ${ctx.source.owner}/${ctx.source.repo}: ${
+        // Swallowing this would leave the page holding an unresolved relative
+        // URL while the file is still recorded as synced — and the unchanged
+        // -sha shortcut then stops anything from ever repairing it. Fail the
+        // file instead so the job retries.
+        throw new Error(
+          `asset_import_failed: ${repoPath} from ${ctx.source.owner}/${ctx.source.repo} — ${
             err instanceof Error ? err.message : err
           }`,
         );

@@ -8,7 +8,7 @@ import { KyselyDB } from '@docmost/db/types/kysely.types';
 import { executeTx } from '@docmost/db/utils';
 import { QueueJob, QueueName } from '../queue/constants';
 import { GithubSyncService } from './github-sync.service';
-import { pushJobId } from './github-webhook.controller';
+import { enqueuePushJob } from './github-webhook.controller';
 
 // arbitrary namespace for this table's advisory locks — see resolveLockKey.
 // no other code in this app calls pg_advisory_*lock, so any constant works.
@@ -169,11 +169,7 @@ export class GithubProcessor extends WorkerHost implements OnModuleDestroy {
 
     for (const row of stale) {
       try {
-        await this.githubQueue.add(
-          QueueJob.GITHUB_PUSH,
-          { deliveryId: row.deliveryId, payload: row.payload },
-          { jobId: pushJobId(row.deliveryId) },
-        );
+        await enqueuePushJob(this.githubQueue, row.deliveryId, row.payload);
       } catch (err) {
         this.logger.warn(
           `Failed to replay stale GitHub delivery ${row.deliveryId}: ${err instanceof Error ? err.message : err}`,

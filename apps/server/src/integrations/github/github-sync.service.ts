@@ -344,7 +344,21 @@ export class GithubSyncService {
       // page getting trashed). Skipping without checking left it deleted
       // forever, since nothing else ever revisits an already-'synced' row.
       const mappedPage = await this.pageRepo.findById(existing.pageId);
-      if (isPageAlive(mappedPage)) return { skipped: true };
+      if (isPageAlive(mappedPage)) {
+        // The content is unchanged, but the page's placement might not be:
+        // anything that moved it (a user drag, an earlier bug) would never be
+        // corrected, because an unchanged sha skips the rest of this method
+        // where the parent is normally reconciled.
+        await this.reconcileParent(
+          source,
+          repoPath,
+          existing.pageId,
+          mappedPage,
+          actor,
+          folderCache,
+        );
+        return { skipped: true };
+      }
     }
 
     let markdown = args.markdown;
@@ -591,6 +605,44 @@ export class GithubSyncService {
     return failures;
   }
 
+  /**
+   * Put a page back under the folder its repo path implies.
+   *
+   * Called from the unchanged-sha path, where the rest of the sync is skipped.
+   * An index/README page is deliberately left alone: it *is* the folder page,
+   * and its parent belongs to ensureFolderChain.
+   */
+  private async reconcileParent(
+    source: SourceRow,
+    repoPath: string,
+    pageId: string,
+    page: { parentPageId?: string | null },
+    actor: User,
+    folderCache: Map<string, string>,
+  ) {
+    const relPath = source.rootDir
+      ? repoPath.slice(source.rootDir.length + 1)
+      : repoPath;
+
+    if (INDEX_RE.test(path.posix.basename(relPath))) return;
+
+    const relDir = path.posix.dirname(relPath);
+    const expected =
+      (await this.ensureFolderChain(
+        source,
+        relDir === '.' ? '' : relDir,
+        actor,
+        folderCache,
+      )) ??
+      source.rootPageId ??
+      null;
+
+    if ((page.parentPageId ?? null) === expected) return;
+
+    await this.pageRepo.updatePage({ parentPageId: expected }, pageId);
+    this.logger.debug(`Reparented ${repoPath} -> ${expected ?? 'space root'}`);
+  }
+
   private async deleteMapping(
     source: SourceRow,
     pageId: string | null,
@@ -612,12 +664,24 @@ export class GithubSyncService {
         .where('status', '=', 'synced')
         .executeTakeFirst();
 
-      if (folderSibling) {
+      // A repo-root README maps straight onto the source's mount page and has
+      // no folder mapping to find above, so it needs the same protection:
+      // deleting it must not trash the page the operator chose to sync into,
+      // along with everything already synced beneath it.
+      const isMountPage = pageId === source.rootPageId;
+
+      if (folderSibling || isMountPage) {
         // the README supplied this page's content; with it gone, the page
         // reverts to being just the (still very much alive) folder page
         await this.pageService.updatePageContent(pageId, '<p></p>', 'replace', 'html', actor);
         await this.pageRepo.updatePage(
-          { title: folderSibling.title, lastUpdatedById: actor.id, updatedAt: new Date() },
+          {
+            // the mount page has no folder mapping to take a title from, so
+            // leave whatever the operator named it
+            ...(folderSibling ? { title: folderSibling.title } : {}),
+            lastUpdatedById: actor.id,
+            updatedAt: new Date(),
+          },
           pageId,
         );
       } else {

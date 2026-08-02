@@ -100,7 +100,7 @@ export type FullSyncJobState =
   | 'unknown';
 
 export function fullSyncJobId(sourceId: string): string {
-  return `github-full-sync:${sourceId}`;
+  return `github-full-sync-${sourceId}`;
 }
 
 /**
