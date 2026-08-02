@@ -43,9 +43,12 @@ jobs:
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest
-            type=raw,value=${{ github.ref_name }}
-            type=raw,value=${{ github.ref_name }}-{{sha}}
+            # type=ref 會把 feat/x 這種分支名消毒成 feat-x;type=raw 不會,
+            # 而含 '/' 的 tag 會讓 push 直接失敗
+            type=ref,event=branch
+            type=sha,format=short,prefix={{branch}}-
+            # latest 只跟著 dev 走,手動建的 feature branch 不該蓋掉它
+            type=raw,value=latest,enable=${{ github.ref_name == 'dev' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -67,6 +70,9 @@ jobs:
   deploy:
     name: Deploy to K8s
     needs: ci
+    # 只有 dev 自動部署。手動 dispatch 其他分支時只建 image,
+    # 不去動 k3s 上跑著的東西。
+    if: github.ref_name == 'dev'
     runs-on: ubuntu-latest
 
     steps:
