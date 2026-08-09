@@ -162,6 +162,9 @@
       "ts"
     ],
     "rootDir": "src",
+    "setupFiles": [
+      "<rootDir>/../test/load-env.ts"
+    ],
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "happy-dom.+\\.js$": [

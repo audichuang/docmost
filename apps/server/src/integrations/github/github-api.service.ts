@@ -384,44 +384,10 @@ export class GithubApiService {
     return res.status === 200 ? (res.json?.sha ?? null) : null;
   }
 
-  /** Reconcile the local installation rows with what GitHub actually reports. */
-  async syncInstallationsFromGitHub(workspaceId: string) {
-    const rows = await this.db
-      .selectFrom('githubInstallations')
-      .select(['id', 'installationId'])
-      .where('workspaceId', '=', workspaceId)
-      .execute();
-
-    for (const row of rows) {
-      const info = await this.getInstallationInfo(row.installationId);
-      if (!info) {
-        // uninstalled on the GitHub side
-        await this.db
-          .deleteFrom('githubInstallations')
-          .where('id', '=', row.id)
-          .execute();
-        this.tokenCache.delete(row.id);
-        continue;
-      }
-
-      await this.db
-        .updateTable('githubInstallations')
-        .set({
-          accountLogin: info.account?.login,
-          accountType: info.account?.type,
-          updatedAt: new Date(),
-        })
-        .where('id', '=', row.id)
-        .execute();
-    }
-
-    return this.db
-      .selectFrom('githubInstallations')
-      .selectAll()
-      .where('workspaceId', '=', workspaceId)
-      .orderBy('createdAt', 'asc')
-      .execute();
-  }
+  // Reconciling installation rows lives on GithubSyncService, not here: an
+  // installation gone from GitHub's side has to be *unlinked* — its sources'
+  // pages unlocked first — and this class is a thin GitHub client with no
+  // business touching pages.
 }
 
 function safeJsonParse(text: string) {

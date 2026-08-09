@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import {
   useMutation,
   useQuery,
@@ -31,6 +32,7 @@ import {
 
 const SOURCES_KEY = ["github-sources"];
 const INSTALLATIONS_KEY = ["github-installations"];
+const SYNC_JOB_KEY = ["github-sync-job"];
 
 export function useGithubConfigQuery(): UseQueryResult<
   { configured: boolean },
@@ -83,8 +85,10 @@ export function useGithubSourcesQuery(): UseQueryResult<IGithubSource[], Error> 
 export function useGithubSyncJobQuery(
   jobId: string | null,
 ): UseQueryResult<IGithubSyncJob, Error> {
-  return useQuery({
-    queryKey: ["github-sync-job", jobId],
+  const queryClient = useQueryClient();
+
+  const query = useQuery({
+    queryKey: [...SYNC_JOB_KEY, jobId],
     queryFn: () => getSyncJob(jobId),
     enabled: Boolean(jobId),
     refetchInterval: (query) => {
@@ -92,6 +96,18 @@ export function useGithubSyncJobQuery(
       return state === "completed" || state === "failed" ? false : 1500;
     },
   });
+
+  // The row's "Last sync" and error badge only change when the job ends, and
+  // polling stops at that moment — without this the table keeps showing the
+  // state from before the sync until something else happens to refetch it.
+  const state = query.data?.state;
+  useEffect(() => {
+    if (state === "completed" || state === "failed") {
+      queryClient.invalidateQueries({ queryKey: SOURCES_KEY });
+    }
+  }, [state, queryClient]);
+
+  return query;
 }
 
 export function useRefreshInstallationsMutation() {
@@ -135,6 +151,7 @@ export function useCreateGithubSourceMutation() {
     onSuccess: () => {
       notifications.show({ message: t("Sync started") });
       queryClient.invalidateQueries({ queryKey: SOURCES_KEY });
+      queryClient.invalidateQueries({ queryKey: SYNC_JOB_KEY });
     },
     onError: (err: Error) => {
       notifications.show({
@@ -155,6 +172,11 @@ export function useRescanSourceMutation() {
     onSuccess: () => {
       notifications.show({ message: t("Sync started") });
       queryClient.invalidateQueries({ queryKey: SOURCES_KEY });
+      // The job id is deterministic per source, so a second rescan hands back
+      // the *same* key whose cache still holds "completed" from last time —
+      // polling never restarts and the progress bar never appears. Drop the
+      // cached job states so the new run is observed from scratch.
+      queryClient.invalidateQueries({ queryKey: SYNC_JOB_KEY });
     },
   });
 }
@@ -180,6 +202,15 @@ export function useDeleteGithubSourceMutation() {
     onSuccess: () => {
       notifications.show({ message: t("Source removed") });
       queryClient.invalidateQueries({ queryKey: SOURCES_KEY });
+    },
+    // Removal now refuses while a sync holds the source's lock, so the failure
+    // has to be visible — silently doing nothing on click is worse than the
+    // race this protects against.
+    onError: (err: Error) => {
+      notifications.show({
+        message: err.message || t("Failed to remove source"),
+        color: "red",
+      });
     },
   });
 }

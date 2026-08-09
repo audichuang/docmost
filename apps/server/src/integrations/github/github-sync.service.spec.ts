@@ -12,6 +12,7 @@ function createFluentDb(): any {
   const passthroughMethods = [
     'selectFrom',
     'select',
+    'distinct',
     'where',
     'orderBy',
     'innerJoin',
@@ -41,15 +42,19 @@ function createService(db: any) {
     findById: jest.fn(),
     removePage: jest.fn(),
     updatePage: jest.fn().mockResolvedValue(undefined),
+    updatePages: jest.fn().mockResolvedValue(undefined),
     deletePage: jest.fn().mockResolvedValue(undefined),
   };
   const pageService = {
     create: jest.fn(),
     updatePageContent: jest.fn().mockResolvedValue(undefined),
+    nextPagePosition: jest.fn().mockResolvedValue('a1'),
   };
   const githubApi = {
     getBlob: jest.fn(),
     getContentByPath: jest.fn(),
+    getInstallationInfo: jest.fn(),
+    invalidateToken: jest.fn(),
   };
   const assetService = {
     rewriteAssets: jest.fn(),
@@ -154,6 +159,183 @@ describe('GithubSyncService.deleteMapping — index/README deletion rule (A4)', 
 
     expect(result).toEqual({ ok: false, error: 'db unavailable' });
     expect(db.execute).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A folder mapping being reconciled away is the husk case: the directory lost
+ * its last file upstream, so its page has nothing left to represent. The
+ * markdown rule must not apply here — the sibling lookup would match the
+ * folder row against *itself* and turn its removal into a content reset,
+ * leaving exactly the empty locked page this reconciliation exists to clear.
+ */
+describe('GithubSyncService.deleteMapping — stale folder rows', () => {
+  it('removes the page without consulting the folder-sibling rule', async () => {
+    const db = createFluentDb();
+    const { service, pageRepo, pageService } = createService(db);
+    pageRepo.removePage.mockResolvedValue(undefined);
+
+    const result = await (service as any).deleteMapping(
+      source,
+      'folder-page',
+      'mapping-f',
+      actor,
+      'folder',
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(db.executeTakeFirst).not.toHaveBeenCalled();
+    expect(pageRepo.removePage).toHaveBeenCalledWith(
+      'folder-page',
+      actor.id,
+      source.workspaceId,
+    );
+    expect(pageService.updatePageContent).not.toHaveBeenCalled();
+  });
+
+  it('still spares the mount page the operator chose to sync into', async () => {
+    const db = createFluentDb();
+    const { service, pageRepo, pageService } = createService(db);
+
+    const result = await (service as any).deleteMapping(
+      { ...source, rootPageId: 'mount-page' },
+      'mount-page',
+      'mapping-f',
+      actor,
+      'folder',
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(pageRepo.removePage).not.toHaveBeenCalled();
+    expect(pageService.updatePageContent).toHaveBeenCalled();
+  });
+});
+
+/**
+ * Removing a source keeps its pages, which has to mean usable pages:
+ * github_files cascades away with the source row, so nothing maps to them any
+ * more, while isLocked kept every REST mutation — update, move and trash
+ * alike — returning 403 forever.
+ */
+describe('GithubSyncService.deleteSource', () => {
+  /**
+   * The advisory lock is a database behaviour a fluent mock cannot stand in for
+   * (kysely's raw `sql` needs a real executor), so it is stubbed here and
+   * covered for real in github-sync.integration.spec.ts. What this asserts is
+   * the ordering inside the lock: release, then delete.
+   */
+  function stubLock(service: any, db: any) {
+    jest
+      .spyOn(service, 'withSourceLock')
+      .mockImplementation(async (_source: any, fn: any) => ({
+        locked: true,
+        result: await fn(db),
+      }));
+  }
+
+  it('unlocks the pages it is about to stop tracking', async () => {
+    const db = createFluentDb();
+    db.executeTakeFirst.mockResolvedValueOnce({
+      id: 'source-1',
+      owner: 'acme',
+      repo: 'docs',
+      ref: 'main',
+    });
+    db.execute.mockResolvedValueOnce([{ pageId: 'p1' }, { pageId: 'p2' }]);
+    const { service, pageRepo } = createService(db);
+    stubLock(service, db);
+
+    await service.deleteSource('ws-1', 'source-1');
+
+    expect(pageRepo.updatePages).toHaveBeenCalledWith(
+      { isLocked: false },
+      ['p1', 'p2'],
+      expect.anything(),
+    );
+    expect(db.deleteFrom).toHaveBeenCalledWith('githubSources');
+  });
+
+  it('touches nothing for a source in another workspace', async () => {
+    const db = createFluentDb();
+    db.executeTakeFirst.mockResolvedValueOnce(undefined);
+    const { service, pageRepo } = createService(db);
+
+    await service.deleteSource('ws-other', 'source-1');
+
+    expect(pageRepo.updatePages).not.toHaveBeenCalled();
+    expect(db.deleteFrom).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Refusing is the whole point of taking the lock: a delete that proceeded
+   * alongside a running sync would unlock a stale snapshot and strand whatever
+   * page that sync committed in the meantime.
+   */
+  it('refuses while a sync holds the source lock', async () => {
+    const db = createFluentDb();
+    db.executeTakeFirst.mockResolvedValueOnce({
+      id: 'source-1',
+      owner: 'acme',
+      repo: 'docs',
+      ref: 'main',
+    });
+    const { service, pageRepo } = createService(db);
+    jest
+      .spyOn(service as any, 'withSourceLock')
+      .mockResolvedValue({ locked: false });
+
+    await expect(service.deleteSource('ws-1', 'source-1')).rejects.toThrow(
+      'github_sync_in_progress',
+    );
+    expect(pageRepo.updatePages).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * `position` is a fractional index scoped to one parent's children. Carrying
+ * the old key into a new parent can duplicate a sibling's key exactly, and
+ * generateJitteredKeyBetween() throws on equal bounds — which is what a user
+ * later meets as `Invalid move position` when dragging near the pair.
+ */
+describe('GithubSyncService.reconcileParent — fresh position on a move', () => {
+  it('writes a new position alongside the new parent', async () => {
+    const db = createFluentDb();
+    const { service, pageRepo, pageService } = createService(db);
+
+    await (service as any).reconcileParent(
+      source,
+      'top.md', // repo root: the expected parent is the space root (null)
+      'page-1',
+      { parentPageId: 'somewhere-else' },
+      actor,
+      new Map(),
+    );
+
+    expect(pageService.nextPagePosition).toHaveBeenCalledWith(
+      source.spaceId,
+      undefined,
+    );
+    expect(pageRepo.updatePage).toHaveBeenCalledWith(
+      { parentPageId: null, position: 'a1' },
+      'page-1',
+    );
+  });
+
+  it('leaves a page already in the right place alone', async () => {
+    const db = createFluentDb();
+    const { service, pageRepo, pageService } = createService(db);
+
+    await (service as any).reconcileParent(
+      source,
+      'top.md',
+      'page-1',
+      { parentPageId: null },
+      actor,
+      new Map(),
+    );
+
+    expect(pageRepo.updatePage).not.toHaveBeenCalled();
+    expect(pageService.nextPagePosition).not.toHaveBeenCalled();
   });
 });
 

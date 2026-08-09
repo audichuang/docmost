@@ -5,12 +5,47 @@ import {
   GITHUB_COMPARE_FILE_LIMIT,
   isCompareSaturated,
   isPageAlive,
+  liveDirPrefixes,
   normalizeDir,
   resolveRepoPath,
   signInstallState,
   titleFromSegment,
   verifyInstallState,
 } from './github.utils';
+
+/**
+ * The set folder-mapping reconciliation is decided against: a folder mapping
+ * whose path is missing from it has no files left, so its page is a husk.
+ * Folder mappings are keyed with a trailing slash, so this must be too.
+ */
+describe('liveDirPrefixes', () => {
+  it('walks every ancestor of each file, trailing slash included', () => {
+    expect(liveDirPrefixes(['note/aws/vpc/subnets.md'])).toEqual(
+      new Set(['note/aws/vpc/', 'note/aws/', 'note/']),
+    );
+  });
+
+  it('yields nothing for files sitting at the repo root', () => {
+    expect(liveDirPrefixes(['README.md', 'guide.md'])).toEqual(new Set());
+  });
+
+  it('keeps a directory alive through any one surviving file', () => {
+    const live = liveDirPrefixes(['docs/a.md', 'docs/nested/b.md']);
+    expect(live.has('docs/')).toBe(true);
+    expect(live.has('docs/nested/')).toBe(true);
+  });
+
+  /**
+   * The husk case: `docs/legacy/` had its only file deleted upstream, so it is
+   * absent here and its page gets removed — while `docs/` survives on a
+   * sibling file and must not be touched.
+   */
+  it('drops a directory once its last file is gone', () => {
+    const live = liveDirPrefixes(['docs/kept.md']);
+    expect(live.has('docs/legacy/')).toBe(false);
+    expect(live.has('docs/')).toBe(true);
+  });
+});
 
 describe('install state', () => {
   const secret = 'test-secret';

@@ -9,6 +9,20 @@ export const MARKDOWN_RE = /\.mdx?$/i;
 export const INDEX_RE = /^(readme|index)\.mdx?$/i;
 
 /**
+ * Everything that mutates one repo/ref's mirror serializes on this advisory
+ * lock — the queue processor's two job kinds *and* the HTTP paths that unlink a
+ * source. Shared here so a caller can't quietly pick a different namespace or
+ * key shape and think it is holding the same lock as everyone else.
+ *
+ * The namespace is arbitrary; no other code in this app calls pg_advisory_*lock.
+ */
+export const GITHUB_LOCK_NAMESPACE = 872314;
+
+export function githubLockKey(owner: string, repo: string, ref: string): string {
+  return `${owner}/${repo}#${ref}`;
+}
+
+/**
  * Second line of defence for values that end up in a GitHub API URL path.
  * A slash here silently redirects the request to a different endpoint —
  * `new URL()` collapses `..`, so `owner = "a/../../user"` reaches /user.
@@ -67,6 +81,29 @@ function hmac(value: string, secret: string): string {
 export function normalizeDir(dir?: string): string {
   if (!dir) return '';
   return dir.replace(/^\/+|\/+$/g, '');
+}
+
+/**
+ * Every directory prefix (trailing slash, matching how folder mappings are
+ * keyed) that still has at least one file under it.
+ *
+ * The full scan only ever reconciled 'markdown' mappings, so a directory
+ * deleted or renamed in the repo left its folder page behind for good: empty,
+ * and locked, which means nobody could remove it by hand either. Rename a
+ * directory a few times and the tree fills up with undeletable husks.
+ */
+export function liveDirPrefixes(filePaths: Iterable<string>): Set<string> {
+  const dirs = new Set<string>();
+
+  for (const filePath of filePaths) {
+    let dir = path.posix.dirname(filePath);
+    while (dir && dir !== '.' && dir !== '/') {
+      dirs.add(`${dir}/`);
+      dir = path.posix.dirname(dir);
+    }
+  }
+
+  return dirs;
 }
 
 export function titleFromSegment(segment: string): string {

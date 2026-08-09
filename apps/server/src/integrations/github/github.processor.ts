@@ -9,10 +9,8 @@ import { executeTx } from '@docmost/db/utils';
 import { QueueJob, QueueName } from '../queue/constants';
 import { GithubSyncService } from './github-sync.service';
 import { enqueuePushJob } from './github-webhook.controller';
+import { GITHUB_LOCK_NAMESPACE, githubLockKey } from './github.utils';
 
-// arbitrary namespace for this table's advisory locks — see resolveLockKey.
-// no other code in this app calls pg_advisory_*lock, so any constant works.
-const LOCK_NAMESPACE = 872314;
 // how long a contended job waits before checking the lock again — the lock
 // itself has no separate timeout, see withSourceLock
 const LOCK_RETRY_DELAY_MS = 5_000;
@@ -21,6 +19,13 @@ const LOCK_RETRY_DELAY_MS = 5_000;
 // below treats it as abandoned
 const REPLAY_STALE_AFTER_MS = 10 * 60 * 1000;
 const REPLAY_BATCH_SIZE = 50;
+
+// Every push stores its entire webhook payload as jsonb, and nothing ever
+// removed a row — on an active repo this is the fastest-growing table in the
+// database, in a deployment where disk is often the scarce resource. A
+// processed delivery has served both of its purposes long before this:
+// idempotency (GitHub's redelivery window is hours) and forensics.
+const DELIVERY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 @Processor(QueueName.GITHUB_QUEUE)
 export class GithubProcessor extends WorkerHost implements OnModuleDestroy {
@@ -99,7 +104,7 @@ export class GithubProcessor extends WorkerHost implements OnModuleDestroy {
         .select(['owner', 'repo', 'ref'])
         .where('id', '=', job.data?.sourceId ?? '')
         .executeTakeFirst();
-      return source ? lockKeyFor(source.owner, source.repo, source.ref) : null;
+      return source ? githubLockKey(source.owner, source.repo, source.ref) : null;
     }
 
     if (job.name === QueueJob.GITHUB_PUSH) {
@@ -111,7 +116,7 @@ export class GithubProcessor extends WorkerHost implements OnModuleDestroy {
       if (!repoFullName || !branch) return null;
 
       const [owner, repo] = repoFullName.split('/');
-      return owner && repo ? lockKeyFor(owner, repo, branch) : null;
+      return owner && repo ? githubLockKey(owner, repo, branch) : null;
     }
 
     return null;
@@ -132,7 +137,7 @@ export class GithubProcessor extends WorkerHost implements OnModuleDestroy {
   ): Promise<{ acquired: true; result: T } | { acquired: false }> {
     return executeTx(this.db, async (trx) => {
       const lock = await sql<{ locked: boolean }>`
-        select pg_try_advisory_xact_lock(${LOCK_NAMESPACE}::int, hashtext(${lockKey})) as locked
+        select pg_try_advisory_xact_lock(${GITHUB_LOCK_NAMESPACE}::int, hashtext(${lockKey})) as locked
       `.execute(trx);
 
       if (!lock.rows[0]?.locked) return { acquired: false as const };
@@ -178,6 +183,22 @@ export class GithubProcessor extends WorkerHost implements OnModuleDestroy {
     }
   }
 
+  /** Keeps github_webhook_events bounded — see DELIVERY_RETENTION_MS. */
+  @Interval('github-webhook-prune', 6 * 60 * 60 * 1000)
+  async pruneOldDeliveries(): Promise<void> {
+    const res = await this.db
+      .deleteFrom('githubWebhookEvents')
+      // unprocessed rows are the replay sweep's business, never this one's
+      .where('processed', '=', true)
+      .where('createdAt', '<', new Date(Date.now() - DELIVERY_RETENTION_MS))
+      .executeTakeFirst();
+
+    const removed = Number(res.numDeletedRows ?? 0);
+    if (removed > 0) {
+      this.logger.log(`Pruned ${removed} GitHub webhook delivery record(s)`);
+    }
+  }
+
   @OnWorkerEvent('failed')
   onError(job: Job, err: Error) {
     this.logger.error(`GitHub job ${job?.name} failed: ${err.message}`);
@@ -188,6 +209,3 @@ export class GithubProcessor extends WorkerHost implements OnModuleDestroy {
   }
 }
 
-function lockKeyFor(owner: string, repo: string, ref: string): string {
-  return `${owner}/${repo}#${ref}`;
-}

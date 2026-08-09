@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import * as path from 'path';
 import { InjectKysely } from 'nestjs-kysely';
+import { sql } from 'kysely';
 import { KyselyDB, KyselyTransaction } from '@docmost/db/types/kysely.types';
 import { dbOrTx, executeTx } from '@docmost/db/utils';
 import { markdownToHtml } from '@docmost/editor-ext';
@@ -17,11 +18,15 @@ import { StorageService } from '../storage/storage.service';
 import { GithubApiService, GithubCompareFile } from './github-api.service';
 import { GithubAssetService } from './github-asset.service';
 import { CreateSourceDto } from './github.dto';
+import { UserRole } from '../../common/helpers/types/permission';
 import {
   extractTitle,
+  GITHUB_LOCK_NAMESPACE,
+  githubLockKey,
   INDEX_RE,
   isCompareSaturated,
   isPageAlive,
+  liveDirPrefixes,
   MARKDOWN_RE,
   normalizeDir,
   titleFromSegment,
@@ -119,13 +124,179 @@ export class GithubSyncService {
     return Number(res.numUpdatedRows) > 0;
   }
 
-  /** Removes the mapping only — synced pages stay where they are. */
+  /**
+   * Removes the mapping only — synced pages stay where they are, but they must
+   * be handed back to the humans on the way out.
+   *
+   * `github_files` cascades away with the source row, so nothing maps to those
+   * pages any more — while `isLocked` stayed set, and page.controller's
+   * assertPageNotLocked covers update, move, move-to-space *and* trash. That
+   * left every page of a removed source stranded: uneditable, unmovable and
+   * undeletable, recoverable only by hand in SQL. The UI promises the pages
+   * are "kept", which has to mean usable.
+   */
   async deleteSource(workspaceId: string, sourceId: string) {
-    await this.db
-      .deleteFrom('githubSources')
+    const source = await this.db
+      .selectFrom('githubSources')
+      .select(['id', 'owner', 'repo', 'ref'])
       .where('id', '=', sourceId)
       .where('workspaceId', '=', workspaceId)
+      .executeTakeFirst();
+
+    if (!source) return;
+
+    const outcome = await this.withSourceLock(source, async (trx) => {
+      await this.releasePages([source.id], trx);
+
+      await trx
+        .deleteFrom('githubSources')
+        .where('id', '=', sourceId)
+        .where('workspaceId', '=', workspaceId)
+        .execute();
+    });
+
+    if (!outcome.locked) throw new ConflictException('github_sync_in_progress');
+  }
+
+  /**
+   * Removing the GitHub account has to release pages exactly like removing a
+   * single source does. Deleting the installation row alone cascades sources and
+   * mappings away underneath the pages and strands every one of them — the same
+   * defect deleteSource fixes, one level up, reachable from both the Disconnect
+   * button and the uninstall cleanup in syncInstallationsFromGitHub.
+   *
+   * Each source is unlinked under its own lock rather than all of them inside
+   * one transaction: holding several of these locks at once would need every
+   * other writer to agree on a lock order to stay deadlock-free.
+   */
+  async deleteInstallation(workspaceId: string, installationRowId: string) {
+    const sources = await this.db
+      .selectFrom('githubSources')
+      .select(['id'])
+      .where('githubInstallationId', '=', installationRowId)
+      .where('workspaceId', '=', workspaceId)
       .execute();
+
+    for (const source of sources) {
+      await this.deleteSource(workspaceId, source.id);
+    }
+
+    await this.db
+      .deleteFrom('githubInstallations')
+      .where('id', '=', installationRowId)
+      .where('workspaceId', '=', workspaceId)
+      .execute();
+
+    this.githubApi.invalidateToken(installationRowId);
+  }
+
+  /**
+   * Reconciles the local installation rows with what GitHub actually reports.
+   *
+   * Lives here rather than on the API client because an installation that has
+   * been uninstalled upstream has to be *unlinked*, not just deleted — see
+   * deleteInstallation. The client stays a thin GitHub client.
+   */
+  async syncInstallationsFromGitHub(workspaceId: string) {
+    const rows = await this.db
+      .selectFrom('githubInstallations')
+      .select(['id', 'installationId'])
+      .where('workspaceId', '=', workspaceId)
+      .execute();
+
+    for (const row of rows) {
+      const info = await this.githubApi.getInstallationInfo(row.installationId);
+
+      if (!info) {
+        await this.deleteInstallation(workspaceId, row.id);
+        continue;
+      }
+
+      await this.db
+        .updateTable('githubInstallations')
+        .set({
+          accountLogin: info.account?.login,
+          accountType: info.account?.type,
+          updatedAt: new Date(),
+        })
+        .where('id', '=', row.id)
+        .execute();
+    }
+
+    return this.db
+      .selectFrom('githubInstallations')
+      .selectAll()
+      .where('workspaceId', '=', workspaceId)
+      .orderBy('createdAt', 'asc')
+      .execute();
+  }
+
+  /**
+   * Unlocks the pages the given sources own, inside the caller's transaction.
+   *
+   * Reading the page ids here rather than before the transaction is what makes
+   * this safe against a sync that is running right now: under the source lock,
+   * no sync can commit a new locked page between this read and the delete that
+   * cascades its mapping away.
+   *
+   * A page another live source still mirrors is left locked — two sources can
+   * be mounted on the same page, and unlocking that one would invite edits the
+   * surviving source silently overwrites on its next run.
+   */
+  private async releasePages(sourceIds: string[], trx: KyselyTransaction) {
+    if (sourceIds.length === 0) return;
+
+    const rows = await trx
+      .selectFrom('githubFiles as f')
+      .select(['f.pageId'])
+      .distinct()
+      .where('f.sourceId', 'in', sourceIds)
+      .where('f.pageId', 'is not', null)
+      .where((eb) =>
+        eb.not(
+          eb.exists(
+            eb
+              .selectFrom('githubFiles as other')
+              .select('other.id')
+              .whereRef('other.pageId', '=', 'f.pageId')
+              .where('other.sourceId', 'not in', sourceIds)
+              .where('other.status', '!=', 'deleted'),
+          ),
+        ),
+      )
+      .execute();
+
+    const pageIds = rows.map((row) => row.pageId).filter(Boolean);
+    if (pageIds.length > 0) {
+      await this.pageRepo.updatePages({ isLocked: false }, pageIds, trx);
+    }
+  }
+
+  /**
+   * Holds the same owner/repo/ref advisory lock the queue processor takes, so a
+   * mutation arriving over HTTP cannot interleave with a sync already running on
+   * another node.
+   *
+   * Reports failure instead of waiting: a full scan can run for minutes, and
+   * blocking a request that long is worse than telling the operator to try
+   * again. Transaction-scoped, so the lock is released on commit or rollback
+   * with no unlock call to forget.
+   */
+  private async withSourceLock<T>(
+    source: { owner: string; repo: string; ref: string },
+    fn: (trx: KyselyTransaction) => Promise<T>,
+  ): Promise<{ locked: true; result: T } | { locked: false }> {
+    const key = githubLockKey(source.owner, source.repo, source.ref);
+
+    return executeTx(this.db, async (trx) => {
+      const lock = await sql<{ locked: boolean }>`
+        select pg_try_advisory_xact_lock(${GITHUB_LOCK_NAMESPACE}::int, hashtext(${key})) as locked
+      `.execute(trx);
+
+      if (!lock.rows[0]?.locked) return { locked: false as const };
+
+      return { locked: true as const, result: await fn(trx) };
+    });
   }
 
   async linkInstallation(
@@ -419,9 +590,11 @@ export class GithubSyncService {
       pageId = folderPageId;
     }
 
+    let currentParentId: string | null | undefined;
     if (pageId) {
       const page = await this.pageRepo.findById(pageId);
       if (!isPageAlive(page)) pageId = null;
+      else currentParentId = page.parentPageId ?? null;
     }
 
     let createdNewPage = false;
@@ -434,6 +607,17 @@ export class GithubSyncService {
       pageId = created.id;
       createdNewPage = true;
     }
+
+    // B4: reconciled on every sync, not only a detected rename — a page whose
+    // folder moved must move with it. Skipped for an index page, whose parent
+    // is governed by ensureFolderChain (its pageId *is* the folder page, not a
+    // child of it), and for a page already sitting in the right place, so the
+    // common no-op sync doesn't pay for a position lookup per file.
+    const desiredParentId = folderPageId ?? source.rootPageId ?? null;
+    const parentPatch =
+      isIndex || createdNewPage || currentParentId === desiredParentId
+        ? {}
+        : await this.reparentPatch(source.spaceId, desiredParentId);
 
     try {
       // routed through the collab gateway so open editors update live
@@ -450,11 +634,7 @@ export class GithubSyncService {
             isLocked: true,
             lastUpdatedById: actor.id,
             updatedAt: new Date(),
-            // B4: reconciled on every sync, not only a detected rename — a
-            // page whose folder moved must move with it. Skipped for an
-            // index page, whose parent is governed by ensureFolderChain
-            // (its pageId *is* the folder page, not a child of it).
-            ...(isIndex ? {} : { parentPageId: folderPageId ?? source.rootPageId ?? null }),
+            ...parentPatch,
           },
           pageId,
           trx,
@@ -537,7 +717,10 @@ export class GithubSyncService {
           // before the lock existed get picked up by the next scan.
           const patch: Record<string, unknown> = {};
           if (page.parentPageId !== (parentId ?? null)) {
-            patch.parentPageId = parentId ?? null;
+            Object.assign(
+              patch,
+              await this.reparentPatch(source.spaceId, parentId ?? null),
+            );
           }
           if (!page.isLocked) patch.isLocked = true;
           if (Object.keys(patch).length) {
@@ -610,7 +793,13 @@ export class GithubSyncService {
       .select(['id', 'path', 'pageId'])
       .where('sourceId', '=', source.id)
       .where('contentType', '=', 'markdown')
-      .where('status', '=', 'synced')
+      // 'error' rows are reconciled too. Scanning only 'synced' left a file
+      // that failed once and was *then* deleted upstream in limbo forever: its
+      // mapping never flipped to 'deleted', so its page survived and — because
+      // pruneStaleFolders reads 'error' as still-present — kept its whole
+      // directory alive as well. A file that failed on this run is in
+      // seenPaths, so it is never mistaken for a deleted one.
+      .where('status', '!=', 'deleted')
       .execute();
 
     const failures: { path: string; error: string }[] = [];
@@ -619,7 +808,104 @@ export class GithubSyncService {
       const result = await this.deleteMapping(source, row.pageId, row.id, actor);
       if (!result.ok) failures.push({ path: row.path, error: result.error ?? 'delete_failed' });
     }
+
+    failures.push(...(await this.pruneStaleFolders(source, actor)));
     return failures;
+  }
+
+  /**
+   * Removes folder pages whose directory has no files left.
+   *
+   * Reconciliation used to cover 'markdown' mappings only, so a directory
+   * deleted or renamed upstream kept its page forever — empty, and locked, so
+   * a human couldn't clear it either. Reads the surviving markdown mappings
+   * back from the database rather than taking a caller's list, so the push
+   * path (which only ever sees one commit's worth of changes) gets the same
+   * answer as a full scan.
+   */
+  private async pruneStaleFolders(
+    source: SourceRow,
+    actor: User,
+  ): Promise<{ path: string; error: string }[]> {
+    const rows = await this.db
+      .selectFrom('githubFiles')
+      .select(['id', 'path', 'pageId', 'contentType', 'status'])
+      .where('sourceId', '=', source.id)
+      .where('contentType', 'in', ['markdown', 'folder'])
+      // 'error' counts as alive on the markdown side: a file that merely failed
+      // to import this run still exists upstream, and treating its directory as
+      // empty would trash the folder page — taking that file's own page down
+      // with it as a child — over a transient GitHub failure. Only 'deleted',
+      // which softDeleteMissing sets deliberately, means gone.
+      .where('status', '!=', 'deleted')
+      .execute();
+
+    const liveDirs = liveDirPrefixes(
+      rows.filter((row) => row.contentType === 'markdown').map((row) => row.path),
+    );
+
+    const stale = rows
+      .filter(
+        (row) =>
+          row.contentType === 'folder' &&
+          row.status === 'synced' &&
+          !liveDirs.has(row.path),
+      )
+      // deepest first: removing a folder page takes its whole subtree with it,
+      // so a shallow directory must not trash pages whose own mapping this
+      // loop still has to settle and report on
+      .sort((a, b) => b.path.length - a.path.length);
+
+    const failures: { path: string; error: string }[] = [];
+    for (const row of stale) {
+      // A page a human created under this folder, or moved into it, keeps the
+      // folder page alive: page.controller's create and move only check edit
+      // permission on the parent, never isLocked, so this is a supported thing
+      // to do — and removePage soft-deletes the entire subtree, so clearing the
+      // husk would take their page with it. Hand the page over instead:
+      // unlocked and no longer mapped, theirs to keep or delete.
+      //
+      // Any *mapped* descendant is already settled by the time we get here —
+      // markdown rows are reconciled before this runs, and nested folders are
+      // walked deepest-first.
+      if (row.pageId && (await this.hasLivePages(row.pageId))) {
+        await this.pageRepo.updatePage(
+          { isLocked: false, updatedAt: new Date() },
+          row.pageId,
+        );
+        await this.db
+          .updateTable('githubFiles')
+          .set({ status: 'deleted', updatedAt: new Date() })
+          .where('id', '=', row.id)
+          .execute();
+
+        this.logger.log(
+          `Released folder page ${row.pageId} (${row.path}): it holds pages this sync does not own`,
+        );
+        continue;
+      }
+
+      const result = await this.deleteMapping(
+        source,
+        row.pageId,
+        row.id,
+        actor,
+        'folder',
+      );
+      if (!result.ok) failures.push({ path: row.path, error: result.error ?? 'delete_failed' });
+    }
+    return failures;
+  }
+
+  private async hasLivePages(parentPageId: string): Promise<boolean> {
+    const child = await this.db
+      .selectFrom('pages')
+      .select(['id'])
+      .where('parentPageId', '=', parentPageId)
+      .where('deletedAt', 'is', null)
+      .executeTakeFirst();
+
+    return Boolean(child);
   }
 
   /**
@@ -656,8 +942,38 @@ export class GithubSyncService {
 
     if ((page.parentPageId ?? null) === expected) return;
 
-    await this.pageRepo.updatePage({ parentPageId: expected }, pageId);
+    await this.pageRepo.updatePage(
+      await this.reparentPatch(source.spaceId, expected),
+      pageId,
+    );
     this.logger.debug(`Reparented ${repoPath} -> ${expected ?? 'space root'}`);
+  }
+
+  /**
+   * `parentPageId` plus a *fresh* `position`.
+   *
+   * `position` is a fractional index that only orders siblings under one
+   * parent, so carrying the old key into a new parent is meaningless at best
+   * and an exact duplicate of a sibling's key at worst. Docmost's own move
+   * endpoint always supplies a new key; a reparent from here has to do the
+   * same. With duplicate keys, the tree's own drag handler is where it bites —
+   * drop-op-to-move-payload.ts calls generateJitteredKeyBetween() on the two
+   * neighbours and it throws on equal bounds, before any request is sent.
+   *
+   * ponytail: two sources moving pages under the *same* parent still race —
+   * they hold different repo/ref locks, so both can read the same last
+   * position, and `pages.position` has no unique constraint. Jitter makes a
+   * collision unlikely rather than impossible; closing it properly needs a
+   * per-space lock, which is a bigger change than the failure earns.
+   */
+  private async reparentPatch(spaceId: string, parentPageId: string | null) {
+    return {
+      parentPageId,
+      position: await this.pageService.nextPagePosition(
+        spaceId,
+        parentPageId ?? undefined,
+      ),
+    };
   }
 
   private async deleteMapping(
@@ -665,6 +981,7 @@ export class GithubSyncService {
     pageId: string | null,
     mappingId: string,
     actor: User,
+    contentType: string = 'markdown',
   ): Promise<{ ok: boolean; error?: string }> {
     if (pageId) {
       // A4: a directory's README shares its page with the directory itself
@@ -672,14 +989,23 @@ export class GithubSyncService {
       // must not take the folder page — and every child page under it —
       // down with it, so check for that sharing before ever calling
       // removePage.
-      const folderSibling = await this.db
-        .selectFrom('githubFiles')
-        .select(['title'])
-        .where('sourceId', '=', source.id)
-        .where('pageId', '=', pageId)
-        .where('contentType', '=', 'folder')
-        .where('status', '=', 'synced')
-        .executeTakeFirst();
+      //
+      // Only asked for a markdown row: the sibling query would match a folder
+      // row against *itself* and turn its own deletion into a content reset,
+      // leaving the husk this reconciliation exists to remove. A folder that
+      // still shares its page with a live README can't be stale anyway — that
+      // README keeps the directory in liveDirPrefixes.
+      const folderSibling =
+        contentType === 'folder'
+          ? undefined
+          : await this.db
+              .selectFrom('githubFiles')
+              .select(['title'])
+              .where('sourceId', '=', source.id)
+              .where('pageId', '=', pageId)
+              .where('contentType', '=', 'folder')
+              .where('status', '=', 'synced')
+              .executeTakeFirst();
 
       // A repo-root README maps straight onto the source's mount page and has
       // no folder mapping to find above, so it needs the same protection:
@@ -851,6 +1177,9 @@ export class GithubSyncService {
     const actor = await this.getActor(source.workspaceId);
     const folderCache = new Map<string, string>();
     const failures: { path: string; error: string }[] = [];
+    // a removal or a rename can empty out a directory, which is the only thing
+    // that makes a folder page stale
+    let structureChanged = false;
 
     // assets first, so a page re-synced in the same push picks up fresh bytes
     for (const file of files) {
@@ -876,6 +1205,7 @@ export class GithubSyncService {
             if (!result.ok) {
               failures.push({ path: file.filename, error: result.error ?? 'delete_failed' });
             }
+            structureChanged = true;
           }
           continue;
         }
@@ -887,6 +1217,7 @@ export class GithubSyncService {
             .where('sourceId', '=', source.id)
             .where('path', '=', file.previous_filename)
             .execute();
+          structureChanged = true;
         }
 
         // push payloads carry no blob sha for the new content, so fetch by path
@@ -906,6 +1237,10 @@ export class GithubSyncService {
         failures.push({ path: file.filename, error: message });
         this.logger.warn(`Push sync failed for ${file.filename}: ${message}`);
       }
+    }
+
+    if (structureChanged) {
+      failures.push(...(await this.pruneStaleFolders(source, actor)));
     }
 
     if (failures.length > 0) {
@@ -979,7 +1314,15 @@ export class GithubSyncService {
       .execute();
   }
 
-  private async finishDelivery(deliveryId: string, ok: boolean, error?: string) {
+  /**
+   * Public so the webhook controller can close out a delivery it deliberately
+   * ignores. An event we never act on used to be recorded and then left
+   * `processed = false` forever, which quietly defeated the retention sweep —
+   * it only removes processed rows, so exactly the events the setup guide tells
+   * operators to subscribe to (installation, installation_repositories) were the
+   * ones that accumulated without bound.
+   */
+  async finishDelivery(deliveryId: string, ok: boolean, error?: string) {
     await this.db
       .updateTable('githubWebhookEvents')
       .set({ processed: true, processedAt: new Date(), ok, error: error ?? null })
@@ -1085,17 +1428,31 @@ export class GithubSyncService {
       .execute();
   }
 
-  /** Pages created by the sync are attributed to the workspace owner. */
+  /**
+   * Pages created by the sync are attributed to the workspace owner.
+   *
+   * "Oldest user" is not the same thing: on a workspace whose original owner
+   * was deleted, or that was seeded by an admin, the oldest row is just
+   * whoever joined first — and every synced page, attachment and audit entry
+   * ends up in their name. Ask for the role, and only fall back to the oldest
+   * remaining user for a workspace that somehow has no owner at all, since
+   * refusing to sync over that is worse than misattributing.
+   */
   private async getActor(workspaceId: string): Promise<User> {
-    const owner = await this.db
+    const candidates = this.db
       .selectFrom('users')
       .selectAll()
       .where('workspaceId', '=', workspaceId)
       .where('deletedAt', 'is', null)
-      .orderBy('createdAt', 'asc')
+      .orderBy('createdAt', 'asc');
+
+    const owner = await candidates
+      .where('role', '=', UserRole.OWNER)
       .executeTakeFirst();
 
-    if (!owner) throw new NotFoundException('workspace_has_no_users');
-    return owner as User;
+    const actor = owner ?? (await candidates.executeTakeFirst());
+
+    if (!actor) throw new NotFoundException('workspace_has_no_users');
+    return actor as User;
   }
 }

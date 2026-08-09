@@ -99,8 +99,15 @@ export type FullSyncJobState =
   | 'failed'
   | 'unknown';
 
-export function fullSyncJobId(sourceId: string): string {
-  return `github-full-sync-${sourceId}`;
+/**
+ * A forced scan gets its own id so it can never be swallowed by an in-flight
+ * ordinary one: coalescing them told the operator "Sync started" and then
+ * silently ran the sha-shortcut scan they had just asked to bypass. Two ids
+ * still cannot run at the same time — the processor's advisory lock on
+ * owner/repo/ref is what actually serializes them (A6).
+ */
+export function fullSyncJobId(sourceId: string, force = false): string {
+  return `github-full-sync-${force ? 'force-' : ''}${sourceId}`;
 }
 
 /**
@@ -158,7 +165,7 @@ export class GithubController {
     @AuthUser() user: User,
   ) {
     this.assertWorkspaceAdmin(user, workspace);
-    return this.githubApi.syncInstallationsFromGitHub(workspace.id);
+    return this.sync.syncInstallationsFromGitHub(workspace.id);
   }
 
   @Get('installations/auth-url')
@@ -303,11 +310,10 @@ export class GithubController {
   ) {
     this.assertWorkspaceAdmin(user, workspace);
 
-    await this.db
-      .deleteFrom('githubInstallations')
-      .where('id', '=', id)
-      .where('workspaceId', '=', workspace.id)
-      .execute();
+    // never a bare delete: the cascade would drop this installation's sources
+    // and mappings out from under their pages and leave every one of them
+    // locked with nothing left to unlock them
+    await this.sync.deleteInstallation(workspace.id, id);
     return { ok: true };
   }
 
@@ -317,7 +323,9 @@ export class GithubController {
   async listRepos(
     @Query() q: ListReposQueryDto,
     @AuthWorkspace() workspace: Workspace,
+    @AuthUser() user: User,
   ) {
+    this.assertWorkspaceAdmin(user, workspace);
     await this.assertInstallation(q.githubInstallationId, workspace.id);
     return this.githubApi.listRepos(q.githubInstallationId);
   }
@@ -326,7 +334,9 @@ export class GithubController {
   async listRefs(
     @Query() q: ListRefsQueryDto,
     @AuthWorkspace() workspace: Workspace,
+    @AuthUser() user: User,
   ) {
+    this.assertWorkspaceAdmin(user, workspace);
     await this.assertInstallation(q.githubInstallationId, workspace.id);
     return this.githubApi.listRefs(q.githubInstallationId, q.owner, q.repo);
   }
@@ -334,7 +344,11 @@ export class GithubController {
   // ------------------------------------------------------------- sources
 
   @Get('sources')
-  async listSources(@AuthWorkspace() workspace: Workspace) {
+  async listSources(
+    @AuthWorkspace() workspace: Workspace,
+    @AuthUser() user: User,
+  ) {
+    this.assertWorkspaceAdmin(user, workspace);
     return this.sync.listSources(workspace.id);
   }
 
@@ -344,6 +358,7 @@ export class GithubController {
     @AuthWorkspace() workspace: Workspace,
     @AuthUser() user: User,
   ) {
+    this.assertWorkspaceAdmin(user, workspace);
     await this.assertCanEditSpace(user, dto.spaceId);
     await this.assertCanMountUnder(user, dto.rootPageId, dto.spaceId);
 
@@ -361,7 +376,7 @@ export class GithubController {
     @AuthWorkspace() workspace: Workspace,
     @AuthUser() user: User,
   ) {
-    const source = await this.assertSourceAccess(sourceId, workspace.id, user);
+    const source = await this.assertSourceAccess(sourceId, workspace, user);
     const job = await this.enqueueFullSync(
       source.id,
       force === '1' || force === 'true',
@@ -378,7 +393,7 @@ export class GithubController {
    * has actually finished, the id is free again for a fresh scan.
    */
   private async enqueueFullSync(sourceId: string, force: boolean) {
-    const jobId = fullSyncJobId(sourceId);
+    const jobId = fullSyncJobId(sourceId, force);
     const existing = await this.githubQueue.getJob(jobId);
 
     if (existing) {
@@ -399,7 +414,10 @@ export class GithubController {
   async jobStatus(
     @Param('jobId') jobId: string,
     @AuthWorkspace() workspace: Workspace,
+    @AuthUser() user: User,
   ) {
+    this.assertWorkspaceAdmin(user, workspace);
+
     const job = await this.githubQueue.getJob(jobId);
     if (!job) return { state: 'unknown', progress: null };
 
@@ -427,7 +445,7 @@ export class GithubController {
     @AuthWorkspace() workspace: Workspace,
     @AuthUser() user: User,
   ) {
-    await this.assertSourceAccess(sourceId, workspace.id, user);
+    await this.assertSourceAccess(sourceId, workspace, user);
     const changed = await this.sync.updateSourceActive(
       workspace.id,
       sourceId,
@@ -442,14 +460,23 @@ export class GithubController {
     @AuthWorkspace() workspace: Workspace,
     @AuthUser() user: User,
   ) {
-    await this.assertSourceAccess(sourceId, workspace.id, user);
+    await this.assertSourceAccess(sourceId, workspace, user);
     await this.sync.deleteSource(workspace.id, sourceId);
     return { ok: true };
   }
 
   // ------------------------------------------------------------- guards
 
-  /** Connecting or removing a GitHub account is a workspace-level setting. */
+  /**
+   * Every route on this controller is workspace-admin only, matching the
+   * settings page that drives it (settings-sidebar.tsx marks the GitHub entry
+   * `role: "admin"`). The API had been open to any authenticated member, which
+   * hid a leak the mutating routes did not have: `repos` and `refs` enumerate
+   * every repository the installation can reach — private ones included — and
+   * `sources` hands back the repo, space name and last sync error of spaces
+   * the caller may have no access to at all. The space-level checks below stay
+   * as the second layer: being an admin still does not make a space writable.
+   */
   private assertWorkspaceAdmin(user: User, workspace: Workspace) {
     const ability = this.workspaceAbility.createForUser(user, workspace);
     if (
@@ -502,14 +529,16 @@ export class GithubController {
 
   private async assertSourceAccess(
     sourceId: string,
-    workspaceId: string,
+    workspace: Workspace,
     user: User,
   ) {
+    this.assertWorkspaceAdmin(user, workspace);
+
     const source = await this.db
       .selectFrom('githubSources')
       .select(['id', 'spaceId'])
       .where('id', '=', sourceId)
-      .where('workspaceId', '=', workspaceId)
+      .where('workspaceId', '=', workspace.id)
       .executeTakeFirst();
 
     if (!source) throw new NotFoundException('github_source_not_found');

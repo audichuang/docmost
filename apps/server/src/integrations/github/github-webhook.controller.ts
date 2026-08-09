@@ -127,6 +127,10 @@ export class GithubWebhookController {
       return { ok: true, duplicate: true };
     }
 
+    // Close the row out: we are never going to act on this event, and a row
+    // left unprocessed is invisible to the retention sweep, which only removes
+    // processed deliveries.
+    await this.sync.finishDelivery(deliveryId, true, `ignored: ${event}`);
     return { ok: true };
   }
 

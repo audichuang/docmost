@@ -29,6 +29,20 @@ describe('BullMQ job id compatibility', () => {
     expect(pushJobId('a')).not.toBe(pushJobId('b'));
   });
 
+  it('accepts the forced full-sync job id', () => {
+    expect(bullmqRejects(fullSyncJobId(sourceId, true))).toBe(false);
+  });
+
+  /**
+   * A forced rescan must not coalesce onto an in-flight ordinary one: sharing
+   * the id made "Force full re-sync" report success and then run the very
+   * sha-shortcut scan it was asked to bypass.
+   */
+  it('separates a forced scan from an ordinary one', () => {
+    expect(fullSyncJobId(sourceId, true)).not.toBe(fullSyncJobId(sourceId));
+    expect(fullSyncJobId(sourceId, false)).toBe(fullSyncJobId(sourceId));
+  });
+
   it('proves the guard catches the shape that used to be shipped', () => {
     expect(bullmqRejects(`github-full-sync:${sourceId}`)).toBe(true);
   });
