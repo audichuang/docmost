@@ -56,6 +56,11 @@ secrets 放 `.env`(已 gitignore),需要哪些變數見 `.env.example`。`.env` 
 
 **`apps/server/src/database/types/db.d.ts` 是 kysely-codegen 產生的**,不要手改;改 schema 走 migration 再 codegen。
 
+**同步頁的 `isLocked` 是雙向陷阱**(自製唯讀語意,`feat/rebuild-on-v095`):
+
+- `page.controller.ts` 的 `assertPageNotLocked` 除了 update / move / move-to-space,**也擋 delete**。所以任何讓 mapping 消失的路徑 —— 含 FK cascade —— 都必須先解鎖,否則頁面既不能編輯也不能刪除,只能下 SQL 救。
+- 反方向:create 與 move **只檢查 parent 的 edit permission,不檢查 `isLocked`**。同步資料夾底下隨時可能有使用者自己的頁,而 `pageRepo.removePage()` 是遞迴 soft-delete 整棵子樹 —— 清理同步結構前要先確認底下沒有不屬於這個 source 的頁。
+
 ## 授權邊界
 
 - `apps/server/src/ee` 是私有 git submodule,**在這份 checkout 裡是空的,這是正常狀態** — 不要 init、不要在裡面補檔。OSS 程式碼不依賴它,能正常 build。
@@ -65,8 +70,12 @@ secrets 放 `.env`(已 gitignore),需要哪些變數見 `.env.example`。`.env` 
 
 只改 `apps/client/public/locales/en-US/translation.json`。其他 12 個語系由 Crowdin 同步回來(`crowdin.yml`),手動編輯會被覆蓋。
 
-## 沒有測試
+## 測試
 
-`main` 的 `*.spec.ts` 全是 NestJS scaffolding 殘留(只有 `should be defined`),`pnpm test` 通過不代表任何事。`feat/rebuild-on-v095` 的 `integrations/github/` 底下才有真測試。
+`main` 的 `*.spec.ts` 全是 NestJS scaffolding 殘留(只有 `should be defined`)。真測試只在 `feat/rebuild-on-v095` 的 `integrations/github/` 底下。
+
+**跑整包 `pnpm test` 會看到一批 suite 紅,那是既有狀態**(`ee` submodule 是空的),不是你弄壞的 —— 別花時間追。改動 GitHub 整合就跑 `npx jest --testPathPatterns "integrations/github"`。要確認某個紅是不是自己造成的,`git stash` 掉改動再跑同一組比對,比逐個讀 error 快。
+
+`*.integration.spec.ts` 需要一個真 Postgres:advisory lock 排他、FK cascade、`removePage` 的遞迴 CTE 都不是 mock 驗得出來的東西。連線字串放 `GITHUB_TEST_DATABASE_URL`(需要哪些變數見 `.env.example`),未設就整組自動 skip,所以沒有那個 DB 的機器不會被卡住。
 
 **build 與 typecheck 通過也不代表功能有接上。** 已經發生過兩次:授權檢查要求的欄位,跟寫入端刻意留空的欄位對不上;URL 改寫掛在上游改版後已經沒人呼叫的函式上。兩邊都是合法程式碼,只是沒有人呼叫,所以靜態檢查一路綠燈。會影響執行結果的改動,要實際跑起來操作驗證。
