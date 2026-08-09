@@ -188,8 +188,17 @@ export class GithubProcessor extends WorkerHost implements OnModuleDestroy {
   async pruneOldDeliveries(): Promise<void> {
     const res = await this.db
       .deleteFrom('githubWebhookEvents')
-      // unprocessed rows are the replay sweep's business, never this one's
-      .where('processed', '=', true)
+      .where((eb) =>
+        eb.or([
+          eb('processed', '=', true),
+          // An *unprocessed push* is the replay sweep's only record that work
+          // was lost, so it is never this sweep's to remove. Anything else
+          // unprocessed is an event we were never going to act on — including
+          // rows recorded before the webhook controller started closing those
+          // out, which would otherwise sit here for good.
+          eb('event', '!=', 'push'),
+        ]),
+      )
       .where('createdAt', '<', new Date(Date.now() - DELIVERY_RETENTION_MS))
       .executeTakeFirst();
 

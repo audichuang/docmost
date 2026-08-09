@@ -164,6 +164,32 @@ describeWithDb('GitHub webhook retention against a real database', () => {
     expect(await row(deliveryId)).toBeUndefined();
   });
 
+  /**
+   * The production instance this was written for had four such rows dating back
+   * to the day it was deployed: recorded before ignored events were closed out,
+   * so `processed = false` forever and invisible to a sweep keyed on processed
+   * alone.
+   */
+  it('reclaims a legacy ignored event that was never marked processed', async () => {
+    const deliveryId = `int-${uuidv7()}`;
+    deliveries.push(deliveryId);
+
+    await db
+      .insertInto('githubWebhookEvents')
+      .values({
+        deliveryId,
+        event: 'installation',
+        payload: { action: 'created' },
+        processed: false,
+        createdAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000),
+      } as any)
+      .execute();
+
+    await processor.pruneOldDeliveries();
+
+    expect(await row(deliveryId)).toBeUndefined();
+  });
+
   it('rejects a body whose signature does not match', async () => {
     const deliveryId = `int-${uuidv7()}`;
     deliveries.push(deliveryId);
